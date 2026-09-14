@@ -144,6 +144,12 @@ export class Simulation{
  }
  networkState():NetworkState{return{time:this.time,state:this.state,paused:this.paused,wave:this.wave,playerCount:this.playerCount,waveInterval:this.waveInterval,players:this.players,buildings:this.buildings,enemies:this.enemies,projectiles:this.projectiles,zones:this.zones,drops:this.drops,visuals:this.visuals,gear:this.gear,buffs:this.buffs,shared:this.shared,batches:this.batches,messages:this.messages,swap:this.swap,serial:this.serial,stats:this.stats,god:this.god,practice:this.practice};}
  applyNetworkState(state:NetworkState,localSlot=0){this.time=state.time;this.state=state.state;this.paused=state.paused;this.wave=state.wave;this.playerCount=state.playerCount;this.waveInterval=state.waveInterval;this.players=state.players;this.player=this.players[0];this.buildings=state.buildings;this.enemies=state.enemies;this.projectiles=state.projectiles;this.zones=state.zones;this.drops=state.drops;this.visuals=state.visuals;this.gear=state.gear;this.buffs=state.buffs;this.shared=state.shared;this.batches=state.batches;this.messages=state.messages;this.swap=state.swap;this.serial=state.serial;this.stats=state.stats;this.god=state.god;this.practice=state.practice;this.focusPlayer=Math.min(localSlot,this.players.length-1);this.pendingDrops=[];this.soundEvents=[];this.reindex();this.rebuildBuckets();this.fields.clear();this.fieldAt=-100;}
+ reconcileNetworkState(state:NetworkState,localSlot=0){
+  const predicted=this.players[localSlot],position=predicted&&{x:predicted.x,y:predicted.y,input:{...predicted.input},selected:predicted.selected},authoritative=state.players[localSlot],error=position&&authoritative?Math.hypot(position.x-authoritative.x,position.y-authoritative.y):0;
+  this.applyNetworkState(state,localSlot);
+  const local=this.players[localSlot];if(local&&position&&error<=1.25){local.x=position.x+(local.x-position.x)*.35;local.y=position.y+(local.y-position.y)*.35;local.input=position.input;local.selected=position.selected;}
+  return error;
+ }
  updatePlayers(dt:number){for(const p of this.players){if(p.hp<=0)continue;let {x,y}=p.input;const len=Math.hypot(x,y);if(!len)continue;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:p.x,y:p.y},terrainSpeed=this.map.moveFactor(p.x,p.y);this.move(p,x*this.speed*terrainSpeed*dt,y*this.speed*terrainSpeed*dt,.25,false);
    if(distance(before,p)>.0001){p.task=null;if(this.swap!==null&&this.focused===p&&this.drops.find(d=>d.id===this.swap)&&cell(this.drops.find(d=>d.id===this.swap)!)!==cell(p))this.swap=null;}}
  }

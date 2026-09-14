@@ -21,17 +21,17 @@ const game=new Phaser.Game({type:Phaser.AUTO,parent:'world',width:window.innerWi
 function resetSceneNetwork(){scene.online=false;scene.remote=false;scene.localSlot=0;scene.onOnlineInput=undefined;scene.onOnlineCommand=undefined;scene.onOnlineSelect=undefined;}
 function begin(practice=false){audio.enable();online?.close();online=null;resetSceneNetwork();sim=new Simulation(lobbyPlayers);scene.sim=sim;scene.keys.clear();scene.touch={x:0,y:0};book=false;onlineMenu=false;overlayKey='__refresh__';if(practice)sim.practiceStart();else sim.start();refresh();}
 function onlineInput(input:{x:number;y:number}){if(!online)return;if(online.host){const p=sim.players[online.slot];if(p)p.input=input;}else online.sendInput(input);}
-function onlineCommand(action:Parameters<Simulation['command']>[0]){if(!online){sim.command(action);return;}if(online.host)sim.command(action,online.slot);else online.sendCommand(action);}
-function onlineSelect(index:number){if(!online)return;if(online.host){const p=sim.players[online.slot];if(p){p.selected=KEYS[index];sim.focusPlayer=online.slot;}}else online.sendSelect(index);}
+function onlineCommand(action:Parameters<Simulation['command']>[0]){if(!online){sim.command(action);return;}sim.command(action,online.slot);if(!online.host)online.sendCommand(action);}
+function onlineSelect(index:number){if(!online)return;const p=sim.players[online.slot];if(p){p.selected=KEYS[index];sim.focusPlayer=online.slot;}if(!online.host)online.sendSelect(index);}
 function connectOnline(code:string,create:boolean){
  const account=loadAccount();online?.close();onlineError='';sim=new Simulation(1);sim.start();scene.sim=sim;scene.keys.clear();scene.touch={x:0,y:0};scene.online=true;scene.remote=true;scene.localSlot=0;scene.onOnlineInput=onlineInput;scene.onOnlineCommand=onlineCommand;scene.onOnlineSelect=onlineSelect;book=false;onlineMenu=false;overlayKey='__online__';
  online=new OnlineRoom(code,account,create?'create':'join',{
   onWelcome(member){scene.localSlot=member.slot;scene.remote=!member.host;sim.focusPlayer=member.slot;sim.message(member.host?`房间 ${code} 已建立，等待其他账号加入`:`已作为P${member.slot+1}加入房间 ${code}`,'wave');online?.pump(sim,true);refresh();},
   onJoin(member){if(!online?.host)return;while(sim.players.length<=member.slot)sim.joinPlayer();const p=sim.players[member.slot];if(p)p.input={x:0,y:0};sim.focusPlayer=online.slot;sim.message(`${member.name}作为P${member.slot+1}实时加入，敌军压力已提高`,'wave');online.pump(sim,true);refresh();},
   onLeave(slot){const p=sim.players[slot];if(p)p.input={x:0,y:0};sim.message(`P${slot+1}已断线，佣工留在原地`,'bad');refresh();},
-  onState(state){if(online?.host)return;sim.applyNetworkState(state,online?.slot||0);refresh();},
+  onState(state){if(online?.host)return;const error=sim.reconcileNetworkState(state,online?.slot||0);if(online)online.correction=error;refresh();},
   onInput(slot,input){if(!online?.host)return;const p=sim.players[slot];if(p)p.input=input;},
-  onCommand(slot,action){if(!online?.host)return;if(action.startsWith('exchange:'))sim.exchange(Number(action.split(':')[1]));else sim.command(action as Parameters<Simulation['command']>[0],slot);sim.focusPlayer=online.slot;online.pump(sim,true);},
+  onCommand(slot,action){if(!online?.host)return;if(action.startsWith('exchange:'))sim.exchange(Number(action.split(':')[1]),sim.swap,slot);else sim.command(action as Parameters<Simulation['command']>[0],slot);sim.focusPlayer=online.slot;online.pump(sim,true);},
   onSelect(slot,index){if(!online?.host)return;const p=sim.players[slot];if(p)p.selected=KEYS[Math.max(0,Math.min(KEYS.length-1,index))];},
   onStatus(text,bad){if(bad&&online&&!online.connected){onlineError=text;online=null;resetSceneNetwork();sim=new Simulation();scene.sim=sim;onlineMenu=true;overlayKey='__connection_error__';refresh();return;}sim.message(text,bad?'bad':'info');refresh();}
  });refresh();
@@ -49,7 +49,7 @@ ui.addEventListener('click',event=>{const button=(event.target as HTMLElement).c
  if(action==='book'){book=!book;if(sim.state==='playing'&&!online)sim.paused=book;scene.keys.clear();refresh();return;}
  if(action==='pause'){if(online&&!online.host){sim.message('只有房主可以暂停联机对局','bad');refresh();return;}if(sim.state==='playing'){sim.paused=!sim.paused;book=false;scene.keys.clear();online?.pump(sim,true);}refresh();return;}
  if(action==='tower'){if(!sim.paused){const index=Number(button.dataset.index);if(online)onlineSelect(index);else sim.focused.selected=KEYS[index];}refresh();return;}
- if(action==='swap'){const index=Number(button.dataset.index);if(online&&!online.host)online.sendCommand(`exchange:${index}`);else{sim.exchange(index);online?.pump(sim,true);}refresh();return;}
+ if(action==='swap'){const index=Number(button.dataset.index);sim.exchange(index,sim.swap,online?.slot??sim.focusPlayer);if(online&&!online.host)online.sendCommand(`exchange:${index}`);else online?.pump(sim,true);refresh();return;}
  if(action==='grant'){sim.grant(button.dataset.kind as RewardKind);refresh();return;}
  if(action==='practice-wave'&&sim.practice){const b=sim.batches.find(b=>!b.done);if(b){sim.time=Math.max(sim.time,b.time-2.1);}refresh();return;}
  onlineCommand(action as Parameters<Simulation['command']>[0]);online?.pump(sim,true);refresh();
@@ -100,5 +100,5 @@ const stick=$('mobile-stick');let pointer:number|null=null;function stickMove(e:
 stick.addEventListener('pointerdown',e=>{pointer=e.pointerId;stick.setPointerCapture(pointer);stickMove(e);});stick.addEventListener('pointermove',stickMove);for(const name of ['pointerup','pointercancel'])stick.addEventListener(name,()=>{pointer=null;scene.touch={x:0,y:0};(stick.firstElementChild as HTMLElement).style.transform='';});
 // Read-only state hook, plus explicit scenario controls only in dev/QA URLs.
 const qa=new URLSearchParams(location.search).has('qa');
-Object.assign(window,{siege:{snapshot:()=>sim.snapshot(),...(qa?{sim:()=>sim,begin,step:(seconds:number)=>{for(let i=0;i<seconds*30;i++)sim.tick(1/30);refresh();},refresh,online:()=>online?{code:online.code,connected:online.connected,host:online.host,slot:online.slot,roster:online.roster}:null}:{} )}});
+Object.assign(window,{siege:{snapshot:()=>sim.snapshot(),...(qa?{sim:()=>sim,begin,step:(seconds:number)=>{for(let i=0;i<seconds*30;i++)sim.tick(1/30);refresh();},refresh,online:()=>online?{code:online.code,connected:online.connected,host:online.host,slot:online.slot,roster:online.roster,snapshots:online.snapshots,correction:online.correction,rejections:online.rejections}:null,networkSend:(data:unknown)=>online?.send(data)}:{} )}});
 refresh();

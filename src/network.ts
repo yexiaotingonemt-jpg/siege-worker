@@ -11,7 +11,8 @@ type RoomEvent=
  | {type:'command';slot:number;action:string}
  | {type:'select';slot:number;index:number}
  | {type:'resync';slot:number}
- | {type:'notice';text:string};
+ | {type:'notice';text:string}
+ | {type:'error';code:string};
 
 const DEFAULT_ENDPOINT='wss://siege-worker-realtime.yexiaoting-onemt.workers.dev';
 export const REALTIME_ENDPOINT=(import.meta.env.VITE_REALTIME_URL||DEFAULT_ENDPOINT).replace(/\/$/,'');
@@ -25,7 +26,7 @@ export function saveAccountName(name:string){localStorage.setItem('siege-account
 export function roomCode(){const alphabet='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',bytes=crypto.getRandomValues(new Uint8Array(6));return Array.from(bytes,n=>alphabet[n%alphabet.length]).join('');}
 
 export class OnlineRoom{
- ws:WebSocket;member?:RoomMember;roster:RoomMember[]=[];connected=false;lastState=0;lastInput='';
+ ws:WebSocket;member?:RoomMember;roster:RoomMember[]=[];connected=false;lastState=0;lastInput='';snapshots=0;correction=0;rejections=0;
  constructor(public code:string,public account:Account,intent:'create'|'join',private events:{onWelcome:(member:RoomMember)=>void;onJoin:(member:RoomMember)=>void;onLeave:(slot:number)=>void;onState:(state:NetworkState)=>void;onInput:(slot:number,input:{x:number;y:number})=>void;onCommand:(slot:number,action:string)=>void;onSelect:(slot:number,index:number)=>void;onStatus:(text:string,bad?:boolean)=>void}){
   const url=`${REALTIME_ENDPOINT}/rooms/${code}?account=${encodeURIComponent(account.id)}&name=${encodeURIComponent(account.name)}&intent=${intent}`;
   this.ws=new WebSocket(url);this.ws.addEventListener('open',()=>{this.connected=true;events.onStatus('已连接联机服务器');});
@@ -38,12 +39,13 @@ export class OnlineRoom{
   if(event.type==='welcome'){this.member=event.member;this.roster=event.roster;this.events.onWelcome(event.member);if(!event.member.host)this.send({type:'resync'});}
   else if(event.type==='member_joined'){this.roster=event.roster;this.events.onJoin(event.member);}
   else if(event.type==='member_left'){this.roster=event.roster||this.roster.filter(m=>m.accountId!==event.accountId);this.events.onLeave(event.slot);}
-  else if(event.type==='state')this.events.onState(event.state);
+  else if(event.type==='state'){this.snapshots++;this.events.onState(event.state);}
   else if(event.type==='input')this.events.onInput(event.slot,event.input);
   else if(event.type==='command')this.events.onCommand(event.slot,event.action);
   else if(event.type==='select')this.events.onSelect(event.slot,event.index);
   else if(event.type==='resync')this.lastState=0;
   else if(event.type==='notice')this.events.onStatus(event.text);
+  else if(event.type==='error'){this.rejections++;this.events.onStatus(`服务器拒绝了非法联机消息：${event.code}`,true);}
  }
  send(data:unknown){if(this.ws.readyState===WebSocket.OPEN)this.ws.send(JSON.stringify(data));}
  sendInput(input:{x:number;y:number}){const key=`${input.x},${input.y}`;if(key!==this.lastInput){this.lastInput=key;this.send({type:'input',input});}}
