@@ -1,4 +1,4 @@
-import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
+import {ACTIVES,BUFFS,BUILD_POINT_REGEN,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
 import {cell,center,distance,flow,random,WorldMap,type Point} from './map';
 export interface Gear{id:number;kind:ActiveKind;ready:number;until:number}
 export interface Building extends Point{id:number;kind:TowerKind;level:number;hp:number;maxHp:number;progress:number;armor:number;attack:number;range:number;interval:number;skillInterval:number;shot:number;skill:number;aim:number;wind:number;skillAim:number;skillWind:number;shield:number;shieldUntil:number;shieldSource:number;damage:number}
@@ -19,7 +19,7 @@ export class Simulation{
  gear:(Gear|null)[]=[null,null];buffs:Partial<Record<BuffKind,number>>={};shared:Partial<Record<ActiveKind,number>>={};
  batches:Batch[]=[];rewardPool:RewardKind[]=[...Object.keys(ACTIVES),...Object.keys(BUFFS)] as RewardKind[];pendingDrops:{kind:RewardKind;point:Point}[]=[];
  messages:{text:string;until:number;type:string}[]=[];swap:number|null=null;serial=1;
- stats={kills:0,built:0,lost:0,repaired:0,income:0,spent:0,actives:0,damage:{arrow:0,wall:0,mortar:0,frost:0,taunt:0} as Record<TowerKind,number>};
+ stats={kills:0,built:0,lost:0,repaired:0,income:0,passive:0,spent:0,actives:0,damage:{arrow:0,wall:0,mortar:0,frost:0,taunt:0} as Record<TowerKind,number>};
  blocked=new Set<number>();towerCells=new Map<number,Building>();fields=new Map<number,Float32Array>();fieldAt=-100;fieldCell='';dirty=true;
  buckets=new Map<number,Enemy[]>();god=false;practice=false;soundEvents:string[]=[];
  networkTracks:{entity:Point;x:number;y:number}[]=[];networkBlend=0;lastNetworkTime:number|undefined;
@@ -129,7 +129,7 @@ export class Simulation{
  spawnPoint(wave:number,batch:number){const origin=this.partyCenter();for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=10+this.rand()*3;const p=center(cell({x:Math.max(2,Math.min(SIZE-3,origin.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(SIZE-3,origin.y+Math.sin(angle)*radius))}));if(this.alivePlayers().every(w=>distance(p,w)>=8)&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
  spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r,!!d.air),initial=this.nearestPlayer(point,true);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:initial?.id??-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
  tick(dt:number){if(this.state!=='playing'||this.paused)return;
-  this.time+=dt;this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
+  const previousTime=this.time;this.time+=dt;const combatSeconds=Math.max(0,this.time)-Math.max(0,previousTime);if(combatSeconds>0){const supply=combatSeconds*BUILD_POINT_REGEN*this.playerCount;this.player.gold+=supply;this.stats.passive+=supply;}this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
   this.updatePlayers(dt);for(const t of this.buildings)this.attributes(t);
   const wave=this.time<0?0:this.batches.length?this.batches.reduce((n,b)=>this.time>=b.time?Math.max(n,b.wave):n,0):this.wave;if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
   for(let i=0;i<this.batches.length;i++){const b=this.batches[i];if(b.done||this.time<b.time-2||this.time<b.retry)continue;
