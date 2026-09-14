@@ -1,4 +1,4 @@
-export const SIZE=32, TILE=42, REPAIR_SPEED=.5, REPAIR_COST=.5, BUILD_POINT_REGEN=.5;
+export const SIZE=32, TILE=42, REPAIR_SPEED=.5, REPAIR_COST=.5, BUILD_POINT_REGEN=.5, REVIVE_COST=80;
 export const PARTY_RULES={1:{interval:45,count:1.1},2:{interval:42,count:1.7},3:{interval:39,count:2.3}} as const;
 export type TowerKind='arrow'|'wall'|'mortar'|'frost'|'taunt';
 export const TOWERS:Record<TowerKind,{name:string;icon:string;color:number;cost:number;work:number;hp:number;armor:number;attack:number;interval:number;range:number;unlock:number;skill:number;desc:string}>={

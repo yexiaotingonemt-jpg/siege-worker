@@ -5,12 +5,13 @@ import {Simulation} from '../src/sim';
 describe('realtime protocol validation',()=>{
  it('accepts normal controls and rejects out-of-range or unknown controls',()=>{
   expect(validInput({x:1,y:-1})).toBe(true);expect(validInput({x:1.1,y:0})).toBe(false);expect(validInput({x:NaN,y:0})).toBe(false);
-  expect(validCommand('build')).toBe(true);expect(validCommand('exchange:1')).toBe(true);expect(validCommand('grant:gold')).toBe(false);
+  expect(validCommand('build')).toBe(true);expect(validCommand('context')).toBe(true);expect(validCommand('exchange:1')).toBe(true);expect(validCommand('grant:gold')).toBe(false);
   expect(validSelect(4)).toBe(true);expect(validSelect(5)).toBe(false);
  });
  it('validates authoritative snapshot bounds and connected player count',()=>{
   const sim=new Simulation(3);sim.start();const state=JSON.parse(JSON.stringify(sim.networkState()));
-  expect(validNetworkState(state,3)).toBe(true);state.players[2].x=999;expect(validNetworkState(state,3)).toBe(false);state.players[2].x=16.5;expect(validNetworkState(state,4)).toBe(false);
+  expect(validNetworkState(state,3)).toBe(true);state.players[2].x=999;expect(validNetworkState(state,3)).toBe(false);state.players[2].x=16.5;expect(validNetworkState(state,4)).toBe(false);state.players[1].gold=-1;expect(validNetworkState(state,3)).toBe(false);state.players[1].gold=120;state.buildings.push({...state.players[0],owner:99});expect(validNetworkState(state,3)).toBe(false);
+  const many=new Simulation();many.start();for(let i=0;i<40;i++)many.addBuilding('wall',i%8+.5,Math.floor(i/8)+.5,true,0);expect(validNetworkState(JSON.parse(JSON.stringify(many.networkState())))).toBe(true);
   expect(sim.networkState(true).batches.every(batch=>batch.kinds.length===0)).toBe(true);
  });
 });

@@ -1,10 +1,10 @@
 import Phaser from 'phaser';
 import {ENEMIES,isActive,KEYS,SIZE,TILE,TOWERS} from './data';
-import {distance,random} from './map';
+import {distance,random,type Point} from './map';
 import {Simulation,type Building,type Enemy,type Worker} from './sim';
 export class BattleScene extends Phaser.Scene{
  sim:Simulation;world!:Phaser.GameObjects.Graphics;actors!:Phaser.GameObjects.Graphics;effects!:Phaser.GameObjects.Graphics;labels:Phaser.GameObjects.Text[]=[];workerLabels:Phaser.GameObjects.Text[]=[];
- keys=new Set<string>();acc=0;onTick:()=>void;lastUI=0;touch={x:0,y:0};
+ keys=new Set<string>();acc=0;onTick:()=>void;lastUI=0;touch={x:0,y:0};moveTarget?:Point;moveTargetSlot=0;
  online=false;remote=false;localSlot=0;onOnlineInput?:(input:{x:number;y:number})=>void;onOnlineCommand?:(action:Parameters<Simulation['command']>[0])=>void;onOnlineSelect?:(index:number)=>void;
  constructor(sim:Simulation,onTick:()=>void){super('battle');this.sim=sim;this.onTick=onTick;}
  create(){this.world=this.add.graphics();this.actors=this.add.graphics();this.effects=this.add.graphics();this.drawMap();
@@ -14,18 +14,19 @@ export class BattleScene extends Phaser.Scene{
    if(this.online){
     if(e.code==='Escape'){this.onOnlineCommand?.('cancel');this.keys.clear();this.onTick();return;}
     if(/^Digit[1-5]$/.test(e.code)){this.onOnlineSelect?.(Number(e.code.slice(-1))-1);this.onTick();return;}
-    const action:{[key:string]:Parameters<Simulation['command']>[0]}={KeyE:'build',KeyR:'repair',KeyF:'upgrade',KeyG:'pickup',KeyQ:'active0',Space:'active1'};if(action[e.code]){this.onOnlineCommand?.(action[e.code]);this.onTick();}return;
+    if(['KeyW','KeyA','KeyS','KeyD'].includes(e.code))this.moveTarget=undefined;
+    const action:{[key:string]:Parameters<Simulation['command']>[0]}={KeyE:'build',KeyR:'repair',KeyF:'upgrade',KeyG:'pickup',KeyQ:'active0',KeyX:'active1',Space:'context'};if(action[e.code]){this.onOnlineCommand?.(action[e.code]);this.onTick();}return;
    }
    if(e.code==='KeyP'){s.paused=!s.paused;this.keys.clear();this.onTick();return;}
    if(e.code==='Escape'){if(s.swap!==null||s.task){s.command('cancel');}else s.paused=!s.paused;this.keys.clear();this.onTick();return;}
    if((e.code==='Enter'&&s.playerCount===1)||(e.code==='KeyO'&&s.playerCount===2)){s.joinPlayer();this.keys.clear();this.onTick();return;}
    if(/^Digit[1-5]$/.test(e.code)){s.players[0].selected=KEYS[Number(e.code.slice(-1))-1];s.focusPlayer=0;}
-   const moveOwner:Record<string,number>={KeyW:0,KeyA:0,KeyS:0,KeyD:0,ArrowUp:1,ArrowLeft:1,ArrowDown:1,ArrowRight:1,KeyI:2,KeyJ:2,KeyK:2,KeyL:2};if(moveOwner[e.code]!==undefined&&moveOwner[e.code]<s.playerCount)s.focusPlayer=moveOwner[e.code];
+   const moveOwner:Record<string,number>={KeyW:0,KeyA:0,KeyS:0,KeyD:0,ArrowUp:1,ArrowLeft:1,ArrowDown:1,ArrowRight:1,KeyI:2,KeyJ:2,KeyK:2,KeyL:2};if(moveOwner[e.code]!==undefined&&moveOwner[e.code]<s.playerCount){s.focusPlayer=moveOwner[e.code];if(this.moveTargetSlot===moveOwner[e.code])this.moveTarget=undefined;}
    const cycles:Record<string,[number,number]>={BracketLeft:[1,-1],BracketRight:[1,1],KeyN:[2,-1],KeyM:[2,1]};const cycle=cycles[e.code];if(cycle&&cycle[0]<s.playerCount){const p=s.players[cycle[0]],i=KEYS.indexOf(p.selected);p.selected=KEYS[(i+cycle[1]+KEYS.length)%KEYS.length];s.focusPlayer=cycle[0];}
-   const actions:Record<string,[number,Parameters<Simulation['command']>[0]]>={KeyE:[0,'build'],KeyR:[0,'repair'],KeyF:[0,'upgrade'],KeyG:[0,'pickup'],KeyQ:[0,'active0'],Space:[0,'active1'],Enter:[1,'build'],Slash:[1,'repair'],Period:[1,'upgrade'],Comma:[1,'pickup'],Semicolon:[1,'active0'],Quote:[1,'active1'],KeyO:[2,'build'],KeyU:[2,'repair'],KeyY:[2,'upgrade'],KeyH:[2,'pickup'],KeyV:[2,'active0'],KeyB:[2,'active1']};const action=actions[e.code];if(action&&action[0]<s.playerCount)s.command(action[1],action[0]);this.onTick();
+   const actions:Record<string,[number,Parameters<Simulation['command']>[0]]>={KeyE:[0,'build'],KeyR:[0,'repair'],KeyF:[0,'upgrade'],KeyG:[0,'pickup'],KeyQ:[0,'active0'],KeyX:[0,'active1'],Space:[0,'context'],Enter:[1,'build'],Slash:[1,'repair'],Period:[1,'upgrade'],Comma:[1,'pickup'],Semicolon:[1,'active0'],Quote:[1,'active1'],KeyO:[2,'build'],KeyU:[2,'repair'],KeyY:[2,'upgrade'],KeyH:[2,'pickup'],KeyV:[2,'active0'],KeyB:[2,'active1']};const action=actions[e.code];if(action&&action[0]<s.playerCount)s.command(action[1],action[0]);this.onTick();
   });this.input.keyboard!.on('keyup',(e:KeyboardEvent)=>this.keys.delete(e.code));
-  window.addEventListener('blur',()=>{this.keys.clear();this.touch={x:0,y:0};if(this.online)this.onOnlineInput?.({x:0,y:0});else if(this.sim.state==='playing'){this.sim.paused=true;this.onTick();}});
-  this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{if(pointer.rightButtonDown()){if(this.online)this.onOnlineCommand?.('cancel');else this.sim.command('cancel');}});this.game.canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  window.addEventListener('blur',()=>{this.keys.clear();this.touch={x:0,y:0};this.moveTarget=undefined;if(this.online)this.onOnlineInput?.({x:0,y:0});else if(this.sim.state==='playing'){this.sim.paused=true;this.onTick();}});
+  this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{if(this.sim.state!=='playing'||this.sim.paused)return;if(pointer.rightButtonDown()){const world=this.cameras.main.getWorldPoint(pointer.x,pointer.y);this.moveTarget={x:world.x/TILE,y:world.y/TILE};this.moveTargetSlot=this.online?this.localSlot:this.sim.focusPlayer;this.sim.focusPlayer=this.moveTargetSlot;this.onTick();return;}if(pointer.leftButtonDown()){if(this.online)this.onOnlineCommand?.('context');else this.sim.command('context',this.sim.focusPlayer);this.onTick();}});this.game.canvas.addEventListener('contextmenu',e=>e.preventDefault());
   this.cameras.main.setBounds(0,0,SIZE*TILE,SIZE*TILE);this.cameras.main.setBackgroundColor('#263e31');this.resize();this.scale.on('resize',()=>this.resize());
  }
  resize(){const camera=this.cameras.main;camera.setZoom(this.scale.width<700?.78:1);}
@@ -60,7 +61,7 @@ export class BattleScene extends Phaser.Scene{
   const camp=SIZE/2-3;g.lineStyle(1,0xd7c896,.12).strokeRect(camp*TILE,camp*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
   for(let i=1;i<SIZE;i++)g.lineBetween(i*TILE,0,i*TILE,SIZE*TILE).lineBetween(0,i*TILE,SIZE*TILE,i*TILE);
  }
- update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);if(this.online){const input={x:(this.keys.has('KeyD')?1:0)-(this.keys.has('KeyA')?1:0),y:(this.keys.has('KeyS')?1:0)-(this.keys.has('KeyW')?1:0)};input.x=input.x||this.touch.x;input.y=input.y||this.touch.y;if(s.players[this.localSlot])s.players[this.localSlot].input=input;this.onOnlineInput?.(input);}else{const controls=[['KeyA','KeyD','KeyW','KeyS'],['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'],['KeyJ','KeyL','KeyI','KeyK']];for(let i=0;i<s.players.length;i++){const [left,right,up,down]=controls[i];s.players[i].input={x:(this.keys.has(right)?1:0)-(this.keys.has(left)?1:0),y:(this.keys.has(down)?1:0)-(this.keys.has(up)?1:0)};}s.player.input={x:s.player.input.x||this.touch.x,y:s.player.input.y||this.touch.y};}
+ update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);const applyTarget=(input:Point,index:number)=>{const p=s.players[index];if(input.x||input.y||!p||!this.moveTarget||this.moveTargetSlot!==index)return input;const dx=this.moveTarget.x-p.x,dy=this.moveTarget.y-p.y,gap=Math.hypot(dx,dy);if(gap<.12){this.moveTarget=undefined;return{x:0,y:0};}return{x:dx/gap,y:dy/gap};};if(this.online){let input={x:(this.keys.has('KeyD')?1:0)-(this.keys.has('KeyA')?1:0),y:(this.keys.has('KeyS')?1:0)-(this.keys.has('KeyW')?1:0)};input.x=input.x||this.touch.x;input.y=input.y||this.touch.y;input=applyTarget(input,this.localSlot);if(s.players[this.localSlot])s.players[this.localSlot].input=input;this.onOnlineInput?.(input);}else{const controls=[['KeyA','KeyD','KeyW','KeyS'],['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'],['KeyJ','KeyL','KeyI','KeyK']];for(let i=0;i<s.players.length;i++){const [left,right,up,down]=controls[i];s.players[i].input=applyTarget({x:(this.keys.has(right)?1:0)-(this.keys.has(left)?1:0),y:(this.keys.has(down)?1:0)-(this.keys.has(up)?1:0)},i);}s.player.input={x:s.player.input.x||this.touch.x,y:s.player.input.y||this.touch.y};}
   while(this.acc>=1/30){if(this.remote)s.predictNetwork(1/30,this.localSlot);else s.tick(1/30);this.acc-=1/30;}
   const party=s.alivePlayers(),center=s.partyCenter(),spreadX=Math.max(...party.map(p=>Math.abs(p.x-center.x)),0)*TILE*2,spreadY=Math.max(...party.map(p=>Math.abs(p.y-center.y)),0)*TILE*2,base=this.scale.width<700?.78:1,fit=Math.min(base,(this.scale.width-180)/Math.max(600,spreadX+420),(this.scale.height-170)/Math.max(480,spreadY+360));this.cameras.main.setZoom(Math.max(.55,fit)).centerOn(center.x*TILE,center.y*TILE-30);this.draw();if(_time-this.lastUI>100){this.lastUI=_time;this.onTick();}
  }
@@ -73,7 +74,7 @@ export class BattleScene extends Phaser.Scene{
    else{const pulse=.12+Math.sin(s.time*14)*.045;g.fillStyle(z.fired?0xc56a52:0xe48468,pulse).fillCircle(x,y,r);g.lineStyle(2,0xffb192,.9).strokeCircle(x,y,r);if(!z.fired){const remaining=Math.max(0,z.start-s.time);text(x,y-10,remaining.toFixed(1)+'s','#ffc8a6',16);g.lineStyle(1,0xffc9ad,.5).lineBetween(x-r*.35,y-r*.35,x+r*.35,y+r*.35).lineBetween(x+r*.35,y-r*.35,x-r*.35,y+r*.35);}}
   }
   for(const b of s.batches)if(!b.done&&b.point&&s.time>=b.time-2){const p=b.point,x=p.x*TILE,y=p.y*TILE;g.lineStyle(2,0xdd8b76,.7).strokeCircle(x,y,TILE*(1+.2*Math.sin(s.time*8)));g.lineStyle(1,0xdd8b76,.3).strokeCircle(x,y,TILE*1.6);if(visible(p))text(x,y-48,'敌军集结','#edb19b',12);}
-  const p=s.focused,px=p.x*TILE,py=p.y*TILE,cx=(Math.floor(p.x)+.5)*TILE,cy=(Math.floor(p.y)+.5)*TILE;
+  const p=s.focused,px=p.x*TILE,py=p.y*TILE,cx=(Math.floor(p.x)+.5)*TILE,cy=(Math.floor(p.y)+.5)*TILE;if(this.moveTarget){const color=s.players[this.moveTargetSlot]?.color??p.color;f.lineStyle(2,color,.65).strokeCircle(this.moveTarget.x*TILE,this.moveTarget.y*TILE,8);f.lineStyle(1,color,.45).lineBetween(this.moveTarget.x*TILE-12,this.moveTarget.y*TILE,this.moveTarget.x*TILE+12,this.moveTarget.y*TILE).lineBetween(this.moveTarget.x*TILE,this.moveTarget.y*TILE-12,this.moveTarget.x*TILE,this.moveTarget.y*TILE+12);}
   if(s.state==='playing'){const occupied=s.atPlayer(p);g.fillStyle(occupied?0xe2c181:0xf2d69a,.055).fillRect(cx-21,cy-21,42,42);g.lineStyle(1.5,p.color,.8).strokeRect(cx-20,cy-20,40,40);
    const r=occupied?.range||TOWERS[p.selected].range;if(r){g.lineStyle(1,occupied?TOWERS[occupied.kind].color:TOWERS[p.selected].color,.17).strokeCircle(cx,cy,r*TILE);}
    if(Object.keys(s.buffs).length||s.active('overload'))for(const worker of s.alivePlayers())g.lineStyle(1,worker.color,.13).strokeCircle(worker.x*TILE,worker.y*TILE,5*TILE);
@@ -129,9 +130,10 @@ export class BattleScene extends Phaser.Scene{
  }
  worker(g:Phaser.GameObjects.Graphics,p:Worker,index:number){const s=this.sim,x=p.x*TILE,y=p.y*TILE,bob=p.input.x||p.input.y?Math.sin(s.time*14)*1.7:0;g.fillStyle(0x091e17,.45).fillEllipse(x+2,y+13,26,12);
   if(s.invincible)g.lineStyle(2,0xf9e6b2,.7+Math.sin(s.time*8)*.2).strokeCircle(x,y-3,24);
-  const flash=p.hurtUntil>s.time,body=p.hp>0?p.color:0x625f58;g.fillStyle(0x314f58).fillRect(x-8,y+4,6,11).fillRect(x+2,y+4,6,11);g.fillStyle(flash?0xffc1ad:body).fillRoundedRect(x-10,y-10+bob,20,20,4);g.fillStyle(0x3f7772).fillRect(x-5,y-9+bob,10,18);g.lineStyle(2,0xd9b980).lineBetween(x-4,y-8,x-4,y+8).lineBetween(x+4,y-8,x+4,y+8);g.fillStyle(0xe1b68b).fillCircle(x,y-16+bob,7);g.fillStyle(body).fillRoundedRect(x-10,y-26+bob,20,12,6).fillRect(x-13,y-17+bob,26,4);g.fillStyle(0xffedb0).fillRect(x-2,y-27+bob,4,12);
-  const swing=p.task?Math.sin(s.time*18)*8:0;g.lineStyle(3,0xb6a080).lineBetween(x+10,y+2,x+19,y-9+swing);g.fillStyle(0xb9c5b2).fillRoundedRect(x+14,y-15+swing,13,6,2);g.fillStyle(0xe8d5ae).fillCircle(x+10,y,3);g.fillStyle(0x16271f,.82).fillRoundedRect(x-13,y-43,26,12,3);g.lineStyle(1,p.color,.8).strokeRoundedRect(x-13,y-43,26,12,3);this.labelWorker(x,y-37,index);
- }
+  const flash=p.hurtUntil>s.time,body=p.hp>0?p.color:0x625f58;g.fillStyle(0x314f58).fillRect(x-8,y+4,6,11).fillRect(x+2,y+4,6,11);g.fillStyle(flash?0xffc1ad:body).fillRoundedRect(x-10,y-10+bob,20,20,4);g.fillStyle(0x3f7772).fillRect(x-5,y-9+bob,10,18);g.lineStyle(2,0xd9b980).lineBetween(x-4,y-8,x-4,y+8).lineBetween(x+4,y-8,x+4,y+8);g.fillStyle(0xe1b68b).fillCircle(x,y-16+bob,7);g.fillStyle(body).fillRoundedRect(x-10,y-26+bob,20,12,6).fillRect(x-13,y-17+bob,26,4);g.fillStyle(0xffedb0).fillRect(x-2,y-27+bob,4,12);if(p.hp<=0){g.lineStyle(2,p.color,.55).strokeCircle(x,y-7,25);g.lineStyle(3,0xf1d38d,.9).lineBetween(x-6,y-8,x+6,y-8).lineBetween(x,y-14,x,y-2);}
+  const swing=p.task?Math.sin(s.time*18)*8:0;g.lineStyle(3,0xb6a080).lineBetween(x+10,y+2,x+19,y-9+swing);g.fillStyle(0xb9c5b2).fillRoundedRect(x+14,y-15+swing,13,6,2);g.fillStyle(0xe8d5ae).fillCircle(x+10,y,3);g.fillStyle(0x16271f,.82).fillRoundedRect(x-13,y-43,26,12,3);g.lineStyle(1,p.color,.8).strokeRoundedRect(x-13,y-43,26,12,3);this.labelWorker(x,y-37,index);if(p.hp<=0)this.textLabel(x,y+27,'待救援 ◆80','#ffe0a1',10);
+  }
+  textLabel(x:number,y:number,value:string,color:string,size:number){let t=this.labels.find(l=>!l.visible);if(!t){t=this.add.text(x,y,value,{fontFamily:'Arial',fontSize:size,color,stroke:'#182921',strokeThickness:2}).setOrigin(.5);this.labels.push(t);}t.setText(value).setStyle({fontFamily:'Arial',fontSize:size,color,stroke:'#182921',strokeThickness:2}).setPosition(x,y).setVisible(true);}
  labelWorker(x:number,y:number,index:number){let t=this.workerLabels[index];if(!t){t=this.add.text(x,y,`P${index+1}`,{fontFamily:'Arial',fontSize:9,color:'#fff3d2',stroke:'#182921',strokeThickness:2}).setOrigin(.5);this.workerLabels[index]=t;}t.setPosition(x,y).setVisible(true);}
 }
 

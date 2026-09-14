@@ -1,6 +1,6 @@
 import {SIZE} from './data';
 
-const COMMANDS=new Set(['build','repair','upgrade','pickup','cancel','active0','active1','exchange:0','exchange:1']);
+const COMMANDS=new Set(['context','build','repair','upgrade','pickup','cancel','active0','active1','exchange:0','exchange:1']);
 const STATES=new Set(['menu','playing','won','lost']);
 
 type Point={x:number;y:number};
@@ -13,6 +13,8 @@ const point=(value:unknown):value is Point=>{
  const x=value.x,y=value.y;
  return finite(x)&&finite(y)&&x>=-4&&x<=SIZE+4&&y>=-4&&y<=SIZE+4;
 };
+const player=(value:unknown)=>{if(!object(value)||!point(value))return false;const gold=(value as Record<string,unknown>).gold;return finite(gold)&&gold>=0&&gold<=1e7;};
+const building=(value:unknown)=>{if(!object(value)||!point(value))return false;const owner=(value as Record<string,unknown>).owner;return Number.isInteger(owner)&&[0,-2,-3].includes(Number(owner));};
 
 export function validInput(value:unknown):value is Point{
  if(!point(value))return false;
@@ -26,8 +28,9 @@ export function validNetworkState(value:unknown,requiredPlayers=1,lastTime?:numb
  if(!object(value)||!finite(value.time)||value.time< -10.01||value.time>3600||!STATES.has(String(value.state)))return false;
  if(lastTime!==undefined&&value.time<lastTime-1)return false;
  if(!Number.isInteger(value.playerCount)||Number(value.playerCount)<requiredPlayers||Number(value.playerCount)>3)return false;
- const players=value.players;if(!array(players,3)||players.length!==value.playerCount||!players.every(point))return false;
- const limits:[string,number,boolean][]=[['buildings',32,true],['enemies',3000,true],['projectiles',6000,true],['zones',256,true],['drops',128,true],['visuals',1200,true],['batches',128,false],['messages',32,false],['gear',2,false]];
+ const players=value.players;if(!array(players,3)||players.length!==value.playerCount||!players.every(player))return false;
+ const buildings=value.buildings;if(!array(buildings,SIZE*SIZE)||!buildings.every(building))return false;
+ const limits:[string,number,boolean][]=[['enemies',3000,true],['projectiles',6000,true],['zones',256,true],['drops',128,true],['visuals',1200,true],['batches',128,false],['messages',32,false],['gear',2,false]];
  for(const [key,max,hasPoint] of limits){const list=value[key];if(!array(list,max)||(hasPoint&&!list.every(point)))return false;}
  return finite(value.wave)&&value.wave>=0&&value.wave<=20&&finite(value.waveInterval)&&value.waveInterval>=20&&value.waveInterval<=60;
 }
