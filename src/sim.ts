@@ -1,4 +1,4 @@
-import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
+import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,REPAIR_COST,REPAIR_SPEED,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
 import {cell,center,distance,flow,random,WorldMap,type Point} from './map';
 export interface Gear{id:number;kind:ActiveKind;ready:number;until:number}
 export interface Building extends Point{id:number;kind:TowerKind;level:number;hp:number;maxHp:number;progress:number;armor:number;attack:number;range:number;interval:number;skillInterval:number;shot:number;skill:number;aim:number;wind:number;skillAim:number;skillWind:number;shield:number;shieldUntil:number;shieldSource:number;damage:number}
@@ -23,7 +23,7 @@ export class Simulation{
  constructor(){this.addBuilding('arrow',33.5,32.5,true);this.makeBatches();}
  get speed(){return 3.2*(1+.02*(this.player.level-1))*(this.active('boots')?1.6:1);}
  get buildRate(){return (1+.05*(this.player.level-1))*(this.active('build')?2:1);}
- get repairRate(){return (1+.05*(this.player.level-1))*(this.active('repair')?2:1);}
+ get repairRate(){return REPAIR_SPEED*(1+.05*(this.player.level-1))*(this.active('repair')?2:1);}
  get cap(){return Math.min(16,5+this.player.level);}
  get invincible(){return this.active('invincible');}
  active(kind:ActiveKind){return this.gear.some(g=>g?.kind===kind&&g.until>this.time);}
@@ -75,7 +75,7 @@ export class Simulation{
   if(g.kind==='alarm'&&(!here||here.progress<1||!this.enemies.some(e=>distance(e,here)<=4&&e.tauntImmune<=this.time))){this.message('站在完工建筑上，且4格内需要有敌人','bad');return;}
   if(g.kind==='instant'){
    if(!here||here.progress<1||here.hp>=here.maxHp-.001){this.message('需要脚下有受损的完工建筑','bad');return;}
-   const heal=Math.min(here.maxHp*.35,here.maxHp-here.hp),fee=heal/here.maxHp*TOWERS[here.kind].cost*.3;
+   const heal=Math.min(here.maxHp*.35,here.maxHp-here.hp),fee=heal/here.maxHp*TOWERS[here.kind].cost*REPAIR_COST;
    if(this.player.gold<fee){this.message(`修复需要${fee.toFixed(1)}建造点`,'bad');return;}
    this.spend(fee);here.hp+=heal;this.stats.repaired+=heal;this.fx('ring',here,0x9cdfb9,1.5);
   }
@@ -128,7 +128,7 @@ export class Simulation{
  }if(e)this.relocateBucket(e,oldBucket);}
  updateTask(dt:number){if(!this.task)return;const t=this.buildings.find(t=>t.id===this.task!.id);if(!t||cell(t)!==cell(this.player)){this.task=null;return;}
   const d=TOWERS[t.kind];if(this.task.type==='build'){t.progress=Math.min(1,t.progress+dt*this.buildRate/d.work);if(t.progress>=1){const ratio=t.hp/t.maxHp;t.maxHp=d.hp;t.hp=ratio*d.hp;this.attributes(t);this.task=null;this.stats.built++;this.fx('ring',t,d.color,1.5,.6);this.message(d.name+' 建造完成');this.soundEvents.push('complete');}}
-  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRate/d.work*dt);if(heal<.0001){this.task=null;return;}const fee=heal/t.maxHp*d.cost*.3;if(this.player.gold+1e-8<fee){this.task=null;this.message('建造点不足，修复暂停','bad');return;}this.spend(fee);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)this.task=null;}
+  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRate/d.work*dt);if(heal<.0001){this.task=null;return;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(this.player.gold+1e-8<fee){this.task=null;this.message('建造点不足，修复暂停','bad');return;}this.spend(fee);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)this.task=null;}
  }
  bucketKey(p:Point){return Math.floor(p.x/3)+Math.floor(p.y/3)*24;}
  addBucket(e:Enemy){const id=this.bucketKey(e),arr=this.buckets.get(id)||[];if(!arr.includes(e))arr.push(e);this.buckets.set(id,arr);}

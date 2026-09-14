@@ -1,4 +1,4 @@
-export const SIZE=64, TILE=42;
+export const SIZE=64, TILE=42, REPAIR_SPEED=.5, REPAIR_COST=.5;
 export type TowerKind='arrow'|'wall'|'mortar'|'frost'|'taunt';
 export const TOWERS:Record<TowerKind,{name:string;icon:string;color:number;cost:number;work:number;hp:number;armor:number;attack:number;interval:number;range:number;unlock:number;skill:number;desc:string}>={
  arrow:{name:'箭塔',icon:'➶',color:0xe5bd75,cost:40,work:3,hp:180,armor:5,attack:18,interval:.8,range:6,unlock:1,skill:8,desc:'稳定单体火力 · 周期穿甲'},
