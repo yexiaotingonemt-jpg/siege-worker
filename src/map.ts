@@ -6,6 +6,8 @@ export const center=(i:number)=>({x:i%SIZE+.5,y:Math.floor(i/SIZE)+.5});
 export function random(seed:number){return ()=>{seed|=0;seed=seed+0x6d2b79f5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
 export class WorldMap{
  tiles=new Uint8Array(SIZE*SIZE); // 0 meadow, 1 stone, 2 water, 3 mud
+ elevation=new Uint8Array(SIZE*SIZE); // 0 lowland, 1 highland
+ ramps=new Uint8Array(SIZE*SIZE); // paired high/low cells form a passable slope
  constructor(){
   for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){
    if(x===0||y===0||x===SIZE-1||y===SIZE-1)this.tiles[y*SIZE+x]=1;
@@ -24,25 +26,46 @@ export class WorldMap{
   // Mud is traversable but slow and cannot support construction.
   paint(3,[[27,18,7,3],[34,19,3,2],[42,27,5,3],[43,35,5,2],[29,37,4,2],[27,39,6,2],
    [20,24,4,5],[22,33,4,3],[48,25,4,4],[45,44,5,3],[34,50,5,3],[11,20,4,4],[10,48,5,3]]);
+  // Four raised plateaus tighten the open field. Ground units may change height only at marked ramps.
+  const raise=(rects:number[][])=>{for(const [cx,cy,w,h] of rects)for(let y=cy;y<cy+h;y++)for(let x=cx;x<cx+w;x++)this.elevation[y*SIZE+x]=1;};
+  raise([[22,13,14,11],[43,16,12,11],[18,39,12,11],[39,43,13,12]]);
+  const rampPairs=[[28,23,28,24],[29,23,29,24],[35,19,36,19],[35,20,36,20],
+   [43,21,42,21],[43,22,42,22],[48,26,48,27],[49,26,49,27],
+   [29,44,30,44],[29,45,30,45],[23,39,23,38],[24,39,24,38],
+   [39,48,38,48],[39,49,38,49],[45,43,45,42],[46,43,46,42]];
+  for(const [hx,hy,lx,ly] of rampPairs){for(const [x,y] of [[hx,hy],[lx,ly]]){this.ramps[y*SIZE+x]=1;this.tiles[y*SIZE+x]=0;}}
  }
  terrain(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 1;return this.tiles[Math.floor(y)*SIZE+Math.floor(x)];}
+ elevationAt(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 0;return this.elevation[Math.floor(y)*SIZE+Math.floor(x)];}
+ rampAt(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return false;return !!this.ramps[Math.floor(y)*SIZE+Math.floor(x)];}
  blockedTerrain(x:number,y:number){const t=this.terrain(x,y);return t===1||t===2;}
  moveFactor(x:number,y:number){return this.terrain(x,y)===3?.7:1;}
-  canStand(x:number,y:number,r=.25,blocked?:Set<number>){
-  for(const [dx,dy] of [[-r,-r],[r,-r],[-r,r],[r,r],[0,0]])if(this.blockedTerrain(x+dx,y+dy)||blocked?.has(cell({x:x+dx,y:y+dy})))return false;
+ canFly(x:number,y:number,r=.25){return x-r>=1&&y-r>=1&&x+r<SIZE-1&&y+r<SIZE-1;}
+ canStand(x:number,y:number,r=.25,blocked?:Set<number>){
+  const baseElevation=this.elevationAt(x,y),baseRamp=this.rampAt(x,y);
+  for(const [dx,dy] of [[-r,-r],[r,-r],[-r,r],[r,r],[0,0]]){
+   const sx=x+dx,sy=y+dy;
+   if(this.blockedTerrain(sx,sy)||blocked?.has(cell({x:sx,y:sy})))return false;
+   if(this.elevationAt(sx,sy)!==baseElevation&&!baseRamp&&!this.rampAt(sx,sy))return false;
+  }
   return true;
  }
  los(a:Point,b:Point){const n=Math.ceil(distance(a,b)*6);for(let i=1;i<n;i++)if(this.terrain(a.x+(b.x-a.x)*i/n,a.y+(b.y-a.y)*i/n)===1)return false;return true;}
 }
 // One shared flow field per target, computed from attack-adjacent tiles. No enemy-per-frame A*.
-export function flow(map:WorldMap,target:Point,blocked:Set<number>,breakCost?:Map<number,number>,clearance=.25){
+export function flow(map:WorldMap,target:Point,blocked:Set<number>,breakCost?:Map<number,number>,clearance=.25,air=false){
  const dist=new Float32Array(SIZE*SIZE);dist.fill(Infinity);
  const heap:[number,number][]=[];
  const push=(id:number,d:number)=>{heap.push([id,d]);let i=heap.length-1;while(i>0){const p=(i-1)>>1;if(heap[p][1]<=d)break;heap[i]=heap[p];i=p;}heap[i]=[id,d];};
  const pop=()=>{const top=heap[0],last=heap.pop()!;if(heap.length){let i=0;while(i*2+1<heap.length){let j=i*2+1;if(j+1<heap.length&&heap[j+1][1]<heap[j][1])j++;if(heap[j][1]>=last[1])break;heap[i]=heap[j];i=j;}heap[i]=last;}return top;};
  const id=cell(target);dist[id]=0;push(id,0);
  while(heap.length){const [at,d]=pop();if(d!==dist[at])continue;const x=at%SIZE,y=Math.floor(at/SIZE);
-  for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=SIZE||ny>=SIZE)continue;const ni=ny*SIZE+nx,tile=map.tiles[ni];if(tile===1||tile===2)continue;if(blocked.has(ni)&&ni!==id&&!breakCost)continue;if(clearance>.5&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance))continue;const nd=Math.fround(d+1+(tile===3?.45:0)+(breakCost?.get(ni)||0));if(nd<dist[ni]){dist[ni]=nd;push(ni,nd);}}
+  for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=SIZE||ny>=SIZE)continue;const ni=ny*SIZE+nx,tile=map.tiles[ni];
+   if(!air&&(tile===1||tile===2))continue;
+   if(!air&&map.elevation[at]!==map.elevation[ni]&&!map.ramps[at]&&!map.ramps[ni])continue;
+   if(!air&&blocked.has(ni)&&ni!==id&&!breakCost)continue;
+   if(!air&&clearance>.5&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance))continue;
+   const nd=Math.fround(d+1+(!air&&tile===3?.45:0)+(air?0:(breakCost?.get(ni)||0)));if(nd<dist[ni]){dist[ni]=nd;push(ni,nd);}}
  }
  return dist;
 }

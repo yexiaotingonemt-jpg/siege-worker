@@ -21,14 +21,23 @@ export class BattleScene extends Phaser.Scene{
  }
  resize(){const camera=this.cameras.main;camera.setZoom(this.scale.width<700?.78:1);}
  drawMap(){const g=this.world,rand=random(773);g.clear();g.fillStyle(0x2d4739).fillRect(0,0,SIZE*TILE,SIZE*TILE);
-  for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const px=x*TILE,py=y*TILE,type=this.sim.map.tiles[y*SIZE+x],shade=rand();
-   if(type===2){g.fillStyle(shade>.5?0x315b5d:0x345f61).fillRect(px,py,TILE,TILE);g.lineStyle(1,0x86bab1,.18);g.lineBetween(px+8,py+12,px+24,py+12);if(shade>.6)g.lineBetween(px+22,py+29,px+35,py+29);}
-   else if(type===3){g.fillStyle(shade>.55?0x4a4934:0x444630).fillRect(px,py,TILE,TILE);g.fillStyle(0x776a47,.22).fillEllipse(px+14,py+13,18,8).fillEllipse(px+31,py+29,15,7);g.lineStyle(1,0xa69561,.24).strokeCircle(px+13,py+13,4).strokeCircle(px+31,py+29,3);}
-   else{g.fillStyle(shade>.75?0x354e3d:shade>.3?0x314b39:0x304837).fillRect(px,py,TILE,TILE);
+  for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const id=y*SIZE+x,px=x*TILE,py=y*TILE,type=this.sim.map.tiles[id],high=!!this.sim.map.elevation[id],shade=rand();
+   if(type===2){g.fillStyle(high?(shade>.5?0x3b6968:0x3e6e6c):(shade>.5?0x315b5d:0x345f61)).fillRect(px,py,TILE,TILE);g.lineStyle(1,0x86bab1,.18);g.lineBetween(px+8,py+12,px+24,py+12);if(shade>.6)g.lineBetween(px+22,py+29,px+35,py+29);}
+   else if(type===3){g.fillStyle(high?(shade>.55?0x5b573d:0x53543a):(shade>.55?0x4a4934:0x444630)).fillRect(px,py,TILE,TILE);g.fillStyle(0x776a47,.22).fillEllipse(px+14,py+13,18,8).fillEllipse(px+31,py+29,15,7);g.lineStyle(1,0xa69561,.24).strokeCircle(px+13,py+13,4).strokeCircle(px+31,py+29,3);}
+   else{g.fillStyle(high?(shade>.75?0x476248:shade>.3?0x425d44:0x3f5941):(shade>.75?0x354e3d:shade>.3?0x314b39:0x304837)).fillRect(px,py,TILE,TILE);
     if(type===1){g.fillStyle(0x122920,.4).fillEllipse(px+24,py+34,41,17);g.fillStyle(0x60766a).fillPoints([{x:px+3,y:py+24},{x:px+8,y:py+8},{x:px+28,y:py+3},{x:px+40,y:py+15},{x:px+36,y:py+34},{x:px+13,y:py+36}],true);g.fillStyle(0x809083).fillTriangle(px+8,py+8,px+28,py+3,px+22,py+21);g.fillStyle(0x4b6157).fillTriangle(px+22,py+21,px+40,py+15,px+36,py+34);g.lineStyle(1,0x9dab92,.4).lineBetween(px+9,py+9,px+26,py+5);}
     else{if(shade>.52){const a=px+rand()*34+4,b=py+rand()*32+5;g.lineStyle(1,0x73945d,.27).lineBetween(a,b,a-2,b-4).lineBetween(a,b,a+3,b-5);}if(shade>.91){g.fillStyle(0xb9b57b,.45).fillCircle(px+14,py+24,1.3).fillCircle(px+18,py+22,1);}}
    }
   }
+  // Cliff rims explain the blocked height transition; paired ramp cells cut visible passes through them.
+  const cliff=(x1:number,y1:number,x2:number,y2:number)=>{g.lineStyle(8,0x17291f,.75).lineBetween(x1,y1,x2,y2);g.lineStyle(2,0x91a56f,.5).lineBetween(x1,y1-2,x2,y2-2);};
+  for(let y=1;y<SIZE-1;y++)for(let x=1;x<SIZE-1;x++){const id=y*SIZE+x;if(!this.sim.map.elevation[id]||this.sim.map.ramps[id])continue;const px=x*TILE,py=y*TILE;
+   if(!this.sim.map.elevation[id-1]&&!this.sim.map.ramps[id-1])cliff(px,py,px,py+TILE);
+   if(!this.sim.map.elevation[id+1]&&!this.sim.map.ramps[id+1])cliff(px+TILE,py,px+TILE,py+TILE);
+   if(!this.sim.map.elevation[id-SIZE]&&!this.sim.map.ramps[id-SIZE])cliff(px,py,px+TILE,py);
+   if(!this.sim.map.elevation[id+SIZE]&&!this.sim.map.ramps[id+SIZE])cliff(px,py+TILE,px+TILE,py+TILE);
+  }
+  for(let i=0;i<this.sim.map.ramps.length;i++)if(this.sim.map.ramps[i]){const px=i%SIZE*TILE,py=Math.floor(i/SIZE)*TILE;g.fillStyle(0xb19a68,.2).fillRect(px,py,TILE,TILE);g.lineStyle(1,0xd3bd7b,.35);for(let n=7;n<TILE;n+=9)g.lineBetween(px+7,py+n,px+TILE-7,py+n);}
   // A weathered foundation marks the initial camp without constraining construction.
   g.lineStyle(1,0xd7c896,.12).strokeRect(29*TILE,29*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
   for(let i=1;i<SIZE;i++)g.lineBetween(i*TILE,0,i*TILE,SIZE*TILE).lineBetween(0,i*TILE,SIZE*TILE,i*TILE);
@@ -57,14 +66,14 @@ export class BattleScene extends Phaser.Scene{
   if(hovered){const e=hovered,d=ENEMIES[e.kind],hit=s.canHit(e,p,0),color=hit?0xffa084:0xeac88d;
    g.lineStyle(2,color,.8).strokeCircle(e.x*TILE,e.y*TILE,(d.range+d.r+.25)*TILE);
    const target=s.target(e.target);if(target)g.lineStyle(2,0xffa084,.8).lineBetween(e.x*TILE,e.y*TILE,target.x*TILE,target.y*TILE);
-   const reason=s.invincible?'玩家无敌':s.edgeDistance(e,p,0)>d.range?'玩家在射程外':!s.map.los(e,p)?'岩石遮挡':e.tauntUntil>s.time?'受到嘲讽':'玩家在射程内';
+   const reason=s.invincible?'玩家无敌':s.edgeDistance(e,p,0)>d.range?'玩家在射程外':!d.air&&!s.map.los(e,p)?'岩石遮挡':e.tauntUntil>s.time?'受到嘲讽':'玩家在射程内';
    const name=e.target===0?'玩家':e.target<0?'无':TOWERS[s.buildings.find(t=>t.id===e.target)?.kind??'wall'].name;
    text(e.x*TILE,e.y*TILE-62,`${d.name} · 目标：${name}`,'#ffe3bd',12);
    text(e.x*TILE,e.y*TILE-45,`${reason} · 圆圈为对玩家攻击边界`,'#ffe3bd',11);
   }
   const entities:({type:'tower';v:Building}|{type:'enemy';v:Enemy}|{type:'player';v:typeof p})[]=[...s.buildings.map(v=>({type:'tower' as const,v})),...s.enemies.filter(e=>visible(e)).map(v=>({type:'enemy' as const,v})),{type:'player',v:p}];entities.sort((a,b)=>(a.v.y+(a.type==='player'?.15:0))-(b.v.y+(b.type==='player'?.15:0)));
   for(const entity of entities){const v=entity.v;if(!visible(v))continue;if(entity.type==='tower'){this.tower(g,entity.v);const t=entity.v;if(t.hp<t.maxHp-.1||s.atPlayer()?.id===t.id||t.progress<1){this.bar(g,t.x*TILE-17,t.y*TILE-37,34,3,t.hp/t.maxHp,0x9fc5a2);if(t.progress<1)this.bar(g,t.x*TILE-17,t.y*TILE+24,34,3,t.progress,0xe6bb6e);}if(t.level>1)text(t.x*TILE,t.y*TILE+14,['','II','III','IV'][t.level-1],'#f4dcab',9);}
-   else if(entity.type==='enemy'){this.enemy(g,entity.v);const e=entity.v,d=ENEMIES[e.kind];if(d.boss){this.bar(g,e.x*TILE-30,e.y*TILE-49,60,4,e.hp/e.maxHp,0xdc826f);text(e.x*TILE,e.y*TILE-62,d.name,'#e8b19b',11);}else if(e.hp<e.maxHp)this.bar(g,e.x*TILE-12,e.y*TILE-22,24,2,e.hp/e.maxHp,0xc48b79);}
+   else if(entity.type==='enemy'){this.enemy(g,entity.v);const e=entity.v,d=ENEMIES[e.kind];if(d.boss){this.bar(g,e.x*TILE-30,e.y*TILE-49,60,4,e.hp/e.maxHp,0xdc826f);text(e.x*TILE,e.y*TILE-62,d.name,'#e8b19b',11);}else if(e.hp<e.maxHp)this.bar(g,e.x*TILE-12,e.y*TILE-(d.air?43:22),24,2,e.hp/e.maxHp,0xc48b79);}
    else this.worker(g,px,py);
   }
   for(const b of s.buildings){if(!visible(b))continue;if(b.shield>0&&b.shieldUntil>s.time){f.lineStyle(2,0x9adfe3,.7).strokeRoundedRect(b.x*TILE-21,b.y*TILE-32,42,52,10);this.bar(f,b.x*TILE-17,b.y*TILE-42,34,2,Math.min(1,b.shield/(b.maxHp*.3)),0x9adfe3);}}
@@ -92,6 +101,7 @@ export class BattleScene extends Phaser.Scene{
   if(t.kind==='taunt'){g.fillStyle(0x6f645b).fillRect(x-11,y-19,22,30);g.fillStyle(0x9b8b7e).fillRect(x-14,y-21,28,6);g.lineStyle(3,0xd7c49c).lineBetween(x,y-19,x,y-47);g.fillStyle(0xb99bd1).fillTriangle(x+1,y-46,x+21,y-39,x+1,y-29);g.fillStyle(0xdec7ed).fillCircle(x+7,y-38,2);}
  }
  enemy(g:Phaser.GameObjects.Graphics,e:Enemy){const d=ENEMIES[e.kind],x=e.x*TILE,y=e.y*TILE,scale=d.boss?1.65:1,bob=Math.sin(this.sim.time*9+e.id)*1.1;g.fillStyle(0x102018,.4).fillEllipse(x,y+9,22*scale,10*scale);const color=e.flash>this.sim.time?0xf5d7b4:d.color;
+  if(d.air){const lift=19+bob,wing=Math.sin(this.sim.time*13+e.id)*4;g.fillStyle(0x102018,.28).fillEllipse(x,y+11,25,9);g.lineStyle(1,0x9fd7d2,.28).lineBetween(x,y+5,x,y-lift+8);g.fillStyle(color,.86).fillTriangle(x-3,y-lift,x-20,y-lift-7-wing,x-9,y-lift+7).fillTriangle(x+3,y-lift,x+20,y-lift-7-wing,x+9,y-lift+7);g.fillStyle(0x45676a).fillEllipse(x,y-lift,14,19);g.fillStyle(0xcbbba0).fillCircle(x,y-lift-9,4);g.fillStyle(0x314b50).fillTriangle(x-5,y-lift-10,x-2,y-lift-17,x,y-lift-10).fillTriangle(x,y-lift-10,x+3,y-lift-17,x+5,y-lift-10);if(e.slowUntil>this.sim.time)g.lineStyle(1,0xa0d9e1,.6).strokeEllipse(x,y-lift+8,28,9);return;}
   if(d.cavalry){g.fillStyle(0x53483d).fillEllipse(x,y+4,28*scale,14*scale);g.lineStyle(3,0x443e34).lineBetween(x-9*scale,y+4,x-12*scale,y+14).lineBetween(x+8*scale,y+5,x+10*scale,y+13);g.fillStyle(0x806950).fillEllipse(x+12*scale,y,9*scale,15*scale);}
   g.fillStyle(color).fillRoundedRect(x-7*scale,y-6*scale+bob,14*scale,17*scale,3);g.fillStyle(0xccbda3).fillCircle(x,y-10*scale+bob,5*scale);g.fillStyle(d.boss?0x4a4246:0x586259).fillEllipse(x,y-13*scale+bob,13*scale,8*scale);
   if(e.kind==='heavy'||d.boss){g.fillStyle(0x596260).fillRoundedRect(x-13*scale,y-2*scale,9*scale,16*scale,2);g.lineStyle(1,0xb7b8a5).strokeRoundedRect(x-13*scale,y-2*scale,9*scale,16*scale,2);}

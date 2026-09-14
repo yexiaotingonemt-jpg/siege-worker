@@ -22,6 +22,6 @@ it('928-unit accumulation remains finite and leaves every scheduled batch accoun
  s.tick(1/30);expect(s.enemies.length).toBe(928);expect(s.batches.every(b=>b.done)).toBe(true);
  const start=performance.now();for(let i=0;i<30;i++)s.tick(1/30);
  console.log(JSON.stringify({test:'928-unit pressure',oneSecondSimulationMs:Math.round(performance.now()-start),remaining:s.enemies.length}));
- for(let a=0;a<s.enemies.length;a++)for(let b=a+1;b<s.enemies.length;b++){const first=s.enemies[a],second=s.enemies[b];expect(distance(first,second)).toBeGreaterThanOrEqual(ENEMIES[first.kind].r+ENEMIES[second.kind].r-.003);}
+ for(let a=0;a<s.enemies.length;a++)for(let b=a+1;b<s.enemies.length;b++){const first=s.enemies[a],second=s.enemies[b];if(!!ENEMIES[first.kind].air!==!!ENEMIES[second.kind].air)continue;expect(distance(first,second)).toBeGreaterThanOrEqual(ENEMIES[first.kind].r+ENEMIES[second.kind].r-.003);}
  expect(s.enemies.every(e=>Number.isFinite(e.x)&&Number.isFinite(e.y)&&Number.isFinite(e.hp))).toBe(true);expect(s.state).toBe('playing');
 },60000);
