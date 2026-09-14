@@ -5,11 +5,17 @@ import {Simulation,type Building,type Enemy,type Worker} from './sim';
 export class BattleScene extends Phaser.Scene{
  sim:Simulation;world!:Phaser.GameObjects.Graphics;actors!:Phaser.GameObjects.Graphics;effects!:Phaser.GameObjects.Graphics;labels:Phaser.GameObjects.Text[]=[];workerLabels:Phaser.GameObjects.Text[]=[];
  keys=new Set<string>();acc=0;onTick:()=>void;lastUI=0;touch={x:0,y:0};
+ online=false;remote=false;localSlot=0;onOnlineInput?:(input:{x:number;y:number})=>void;onOnlineCommand?:(action:Parameters<Simulation['command']>[0])=>void;onOnlineSelect?:(index:number)=>void;
  constructor(sim:Simulation,onTick:()=>void){super('battle');this.sim=sim;this.onTick=onTick;}
  create(){this.world=this.add.graphics();this.actors=this.add.graphics();this.effects=this.add.graphics();this.drawMap();
   this.input.keyboard!.on('keydown',(e:KeyboardEvent)=>{if(['INPUT','SELECT','TEXTAREA'].includes((e.target as HTMLElement)?.tagName))return;this.keys.add(e.code);if(e.repeat)return;
    if(['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
    const s=this.sim;if(s.state!=='playing')return;
+   if(this.online){
+    if(e.code==='Escape'){this.onOnlineCommand?.('cancel');this.keys.clear();this.onTick();return;}
+    if(/^Digit[1-5]$/.test(e.code)){this.onOnlineSelect?.(Number(e.code.slice(-1))-1);this.onTick();return;}
+    const action:{[key:string]:Parameters<Simulation['command']>[0]}={KeyE:'build',KeyR:'repair',KeyF:'upgrade',KeyG:'pickup',KeyQ:'active0',Space:'active1'};if(action[e.code]){this.onOnlineCommand?.(action[e.code]);this.onTick();}return;
+   }
    if(e.code==='KeyP'){s.paused=!s.paused;this.keys.clear();this.onTick();return;}
    if(e.code==='Escape'){if(s.swap!==null||s.task){s.command('cancel');}else s.paused=!s.paused;this.keys.clear();this.onTick();return;}
    if((e.code==='Enter'&&s.playerCount===1)||(e.code==='KeyO'&&s.playerCount===2)){s.joinPlayer();this.keys.clear();this.onTick();return;}
@@ -18,8 +24,8 @@ export class BattleScene extends Phaser.Scene{
    const cycles:Record<string,[number,number]>={BracketLeft:[1,-1],BracketRight:[1,1],KeyN:[2,-1],KeyM:[2,1]};const cycle=cycles[e.code];if(cycle&&cycle[0]<s.playerCount){const p=s.players[cycle[0]],i=KEYS.indexOf(p.selected);p.selected=KEYS[(i+cycle[1]+KEYS.length)%KEYS.length];s.focusPlayer=cycle[0];}
    const actions:Record<string,[number,Parameters<Simulation['command']>[0]]>={KeyE:[0,'build'],KeyR:[0,'repair'],KeyF:[0,'upgrade'],KeyG:[0,'pickup'],KeyQ:[0,'active0'],Space:[0,'active1'],Enter:[1,'build'],Slash:[1,'repair'],Period:[1,'upgrade'],Comma:[1,'pickup'],Semicolon:[1,'active0'],Quote:[1,'active1'],KeyO:[2,'build'],KeyU:[2,'repair'],KeyY:[2,'upgrade'],KeyH:[2,'pickup'],KeyV:[2,'active0'],KeyB:[2,'active1']};const action=actions[e.code];if(action&&action[0]<s.playerCount)s.command(action[1],action[0]);this.onTick();
   });this.input.keyboard!.on('keyup',(e:KeyboardEvent)=>this.keys.delete(e.code));
-  window.addEventListener('blur',()=>{this.keys.clear();this.touch={x:0,y:0};if(this.sim.state==='playing'){this.sim.paused=true;this.onTick();}});
-  this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{if(pointer.rightButtonDown())this.sim.command('cancel');});this.game.canvas.addEventListener('contextmenu',e=>e.preventDefault());
+  window.addEventListener('blur',()=>{this.keys.clear();this.touch={x:0,y:0};if(this.online)this.onOnlineInput?.({x:0,y:0});else if(this.sim.state==='playing'){this.sim.paused=true;this.onTick();}});
+  this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{if(pointer.rightButtonDown()){if(this.online)this.onOnlineCommand?.('cancel');else this.sim.command('cancel');}});this.game.canvas.addEventListener('contextmenu',e=>e.preventDefault());
   this.cameras.main.setBounds(0,0,SIZE*TILE,SIZE*TILE);this.cameras.main.setBackgroundColor('#263e31');this.resize();this.scale.on('resize',()=>this.resize());
  }
  resize(){const camera=this.cameras.main;camera.setZoom(this.scale.width<700?.78:1);}
@@ -54,8 +60,8 @@ export class BattleScene extends Phaser.Scene{
   g.lineStyle(1,0xd7c896,.12).strokeRect(29*TILE,29*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
   for(let i=1;i<SIZE;i++)g.lineBetween(i*TILE,0,i*TILE,SIZE*TILE).lineBetween(0,i*TILE,SIZE*TILE,i*TILE);
  }
- update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);const controls=[['KeyA','KeyD','KeyW','KeyS'],['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'],['KeyJ','KeyL','KeyI','KeyK']];for(let i=0;i<s.players.length;i++){const [left,right,up,down]=controls[i];s.players[i].input={x:(this.keys.has(right)?1:0)-(this.keys.has(left)?1:0),y:(this.keys.has(down)?1:0)-(this.keys.has(up)?1:0)};}s.player.input={x:s.player.input.x||this.touch.x,y:s.player.input.y||this.touch.y};
-  while(this.acc>=1/30){s.tick(1/30);this.acc-=1/30;}
+ update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);if(this.online){const input={x:(this.keys.has('KeyD')?1:0)-(this.keys.has('KeyA')?1:0),y:(this.keys.has('KeyS')?1:0)-(this.keys.has('KeyW')?1:0)};input.x=input.x||this.touch.x;input.y=input.y||this.touch.y;if(!this.remote&&s.players[this.localSlot])s.players[this.localSlot].input=input;this.onOnlineInput?.(input);}else{const controls=[['KeyA','KeyD','KeyW','KeyS'],['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'],['KeyJ','KeyL','KeyI','KeyK']];for(let i=0;i<s.players.length;i++){const [left,right,up,down]=controls[i];s.players[i].input={x:(this.keys.has(right)?1:0)-(this.keys.has(left)?1:0),y:(this.keys.has(down)?1:0)-(this.keys.has(up)?1:0)};}s.player.input={x:s.player.input.x||this.touch.x,y:s.player.input.y||this.touch.y};}
+  while(this.acc>=1/30){if(!this.remote)s.tick(1/30);this.acc-=1/30;}
   const party=s.alivePlayers(),center=s.partyCenter(),spreadX=Math.max(...party.map(p=>Math.abs(p.x-center.x)),0)*TILE*2,spreadY=Math.max(...party.map(p=>Math.abs(p.y-center.y)),0)*TILE*2,base=this.scale.width<700?.78:1,fit=Math.min(base,(this.scale.width-180)/Math.max(600,spreadX+420),(this.scale.height-170)/Math.max(480,spreadY+360));this.cameras.main.setZoom(Math.max(.55,fit)).centerOn(center.x*TILE,center.y*TILE-30);this.draw();if(_time-this.lastUI>100){this.lastUI=_time;this.onTick();}
  }
  draw(){const s=this.sim,g=this.actors,f=this.effects;g.clear();f.clear();for(const l of [...this.labels,...this.workerLabels])l.setVisible(false);let label=0;

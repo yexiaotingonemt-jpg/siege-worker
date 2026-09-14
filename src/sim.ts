@@ -9,6 +9,7 @@ export interface Zone extends Point{id:number;kind:'foam'|'smash'|'rain'|'charge
 export interface Drop extends Point{id:number;kind:RewardKind;gear?:Gear}
 export interface Visual extends Point{kind:string;color:number;size:number;age:number;life:number;text?:string;tx?:number;ty?:number}
 export interface Batch{time:number;wave:number;kinds:EnemyKind[];point?:Point;done:boolean;retry:number}
+export interface NetworkState{time:number;state:'menu'|'playing'|'won'|'lost';paused:boolean;wave:number;playerCount:1|2|3;waveInterval:number;players:Worker[];buildings:Building[];enemies:Enemy[];projectiles:Projectile[];zones:Zone[];drops:Drop[];visuals:Visual[];gear:(Gear|null)[];buffs:Partial<Record<BuffKind,number>>;shared:Partial<Record<ActiveKind,number>>;batches:Batch[];messages:{text:string;until:number;type:string}[];swap:number|null;serial:number;stats:Simulation['stats'];god:boolean;practice:boolean}
 type Task={type:'build'|'repair';id:number}|null;
 export interface Worker extends Point{id:number;hp:number;maxHp:number;level:number;xp:number;gold:number;hurtUntil:number;input:Point;task:Task;selected:TowerKind;color:number}
 export class Simulation{
@@ -141,6 +142,8 @@ export class Simulation{
   this.updateTasks(dt);
   if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===20){this.state='won';for(const p of this.players)p.task=null;this.soundEvents.push('won');}
  }
+ networkState():NetworkState{return{time:this.time,state:this.state,paused:this.paused,wave:this.wave,playerCount:this.playerCount,waveInterval:this.waveInterval,players:this.players,buildings:this.buildings,enemies:this.enemies,projectiles:this.projectiles,zones:this.zones,drops:this.drops,visuals:this.visuals,gear:this.gear,buffs:this.buffs,shared:this.shared,batches:this.batches,messages:this.messages,swap:this.swap,serial:this.serial,stats:this.stats,god:this.god,practice:this.practice};}
+ applyNetworkState(state:NetworkState,localSlot=0){this.time=state.time;this.state=state.state;this.paused=state.paused;this.wave=state.wave;this.playerCount=state.playerCount;this.waveInterval=state.waveInterval;this.players=state.players;this.player=this.players[0];this.buildings=state.buildings;this.enemies=state.enemies;this.projectiles=state.projectiles;this.zones=state.zones;this.drops=state.drops;this.visuals=state.visuals;this.gear=state.gear;this.buffs=state.buffs;this.shared=state.shared;this.batches=state.batches;this.messages=state.messages;this.swap=state.swap;this.serial=state.serial;this.stats=state.stats;this.god=state.god;this.practice=state.practice;this.focusPlayer=Math.min(localSlot,this.players.length-1);this.pendingDrops=[];this.soundEvents=[];this.reindex();this.rebuildBuckets();this.fields.clear();this.fieldAt=-100;}
  updatePlayers(dt:number){for(const p of this.players){if(p.hp<=0)continue;let {x,y}=p.input;const len=Math.hypot(x,y);if(!len)continue;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:p.x,y:p.y},terrainSpeed=this.map.moveFactor(p.x,p.y);this.move(p,x*this.speed*terrainSpeed*dt,y*this.speed*terrainSpeed*dt,.25,false);
    if(distance(before,p)>.0001){p.task=null;if(this.swap!==null&&this.focused===p&&this.drops.find(d=>d.id===this.swap)&&cell(this.drops.find(d=>d.id===this.swap)!)!==cell(p))this.swap=null;}}
  }
