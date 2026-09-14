@@ -11,33 +11,24 @@ export class WorldMap{
  constructor(){
   for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){
    if(x===0||y===0||x===SIZE-1||y===SIZE-1)this.tiles[y*SIZE+x]=1;
-   const river=17+Math.round(Math.sin(y*.17)*2);
-   if(x>=river&&x<=river+2&&y>3&&y<59 && ![12,13,14,15,16,28,29,30,31,32,33,47,48,49,50,51].includes(y))this.tiles[y*SIZE+x]=2;
+   const river=7+Math.round(Math.sin(y*.28));
+   if(x>=river&&x<=river+1&&y>2&&y<SIZE-3&&![5,6,7,14,15,16,17,18,25,26,27].includes(y))this.tiles[y*SIZE+x]=2;
   }
-  const paint=(type:number,rects:number[][])=>{for(const [cx,cy,w,h] of rects)for(let y=cy;y<cy+h;y++)for(let x=cx;x<cx+w;x++)if(this.tiles[y*SIZE+x]===0)this.tiles[y*SIZE+x]=type;};
-  // Broken stone ridges form lanes rather than sealed rooms. The 7x7 camp stays clear.
-  paint(1,[[25,22,3,2],[40,29,2,4],[29,42,4,2],[43,42,3,2],[38,16,3,3],[9,25,3,3],[47,11,3,2],[52,52,3,3],[23,52,3,2],[8,45,2,3],[49,25,2,2],
-   [25,27,3,3],[30,25,5,2],[38,25,3,2],[38,35,3,3],[34,39,4,2],[25,37,4,2],
-   [22,8,4,3],[29,11,2,5],[35,7,5,2],[43,11,2,5],[53,17,4,2],[48,22,5,2],
-   [53,29,2,5],[48,37,4,2],[50,46,3,4],[39,48,5,2],[31,54,4,3],[14,55,3,3],
-   [7,36,4,2],[5,17,3,4],[11,8,4,2],[23,45,3,2],[13,40,3,3]]);
-  // Water pockets and short tributaries make additional detours without splitting the map.
-  paint(2,[[20,18,7,2],[24,19,3,2],[44,31,5,2],[46,33,3,2],[20,39,5,2],[21,41,3,2],[41,53,6,2],[6,29,5,2],[8,31,3,2]]);
-  // Mud is traversable but slow and cannot support construction.
-  paint(3,[[27,18,7,3],[34,19,3,2],[42,27,5,3],[43,35,5,2],[29,37,4,2],[27,39,6,2],
-   [20,24,4,5],[22,33,4,3],[48,25,4,4],[45,44,5,3],[34,50,5,3],[11,20,4,4],[10,48,5,3]]);
-  // Four raised plateaus tighten the open field. Ground units may change height only at marked ramps.
-  const raise=(rects:number[][])=>{for(const [cx,cy,w,h] of rects)for(let y=cy;y<cy+h;y++)for(let x=cx;x<cx+w;x++)this.elevation[y*SIZE+x]=1;};
-  raise([[22,13,14,11],[43,16,12,11],[18,39,12,11],[39,43,13,12]]);
-  const rampPairs=[[28,23,28,24],[29,23,29,24],[35,19,36,19],[35,20,36,20],
-   [43,21,42,21],[43,22,42,22],[48,26,48,27],[49,26,49,27],
-   [29,44,30,44],[29,45,30,45],[23,39,23,38],[24,39,24,38],
-   [39,48,38,48],[39,49,38,49],[45,43,45,42],[46,43,46,42]];
+  const paint=(type:number,rects:number[][])=>{for(const [cx,cy,w,h] of rects)for(let y=cy;y<cy+h;y++)for(let x=cx;x<cx+w;x++)if(x>0&&y>0&&x<SIZE-1&&y<SIZE-1&&this.tiles[y*SIZE+x]===0)this.tiles[y*SIZE+x]=type;};
+  // Compact broken ridges preserve several routes while removing the old long empty approaches.
+  paint(1,[[3,4,2,3],[12,3,3,2],[21,4,3,2],[27,8,2,3],[26,14,3,2],[25,19,3,2],[21,27,3,2],[14,27,3,2],[3,23,3,2],[3,14,2,3],[10,18,3,2],[20,18,2,3],[11,12,2,2],[20,12,2,2],[11,22,3,2],[18,25,2,2]]);
+  paint(2,[[4,9,3,2],[9,7,3,2],[23,6,3,2],[24,16,3,2],[4,19,3,2],[14,23,3,2],[25,24,3,2]]);
+  paint(3,[[9,5,4,2],[18,6,3,3],[23,10,3,2],[4,12,3,2],[9,15,3,2],[21,16,3,2],[8,20,4,2],[15,21,3,2],[21,23,3,3],[4,27,4,2]]);
+  const raise=(rects:number[][])=>{for(const [cx,cy,w,h] of rects)for(let y=cy;y<cy+h;y++)for(let x=cx;x<cx+w;x++)if(x>0&&y>0&&x<SIZE-1&&y<SIZE-1)this.elevation[y*SIZE+x]=1;};
+  raise([[10,5,8,7],[21,8,7,7],[5,21,8,7],[20,21,8,7]]);
+  const rampPairs=[[13,11,13,12],[17,8,18,8],[21,11,20,11],[24,14,24,15],[8,21,8,20],[12,24,13,24],[23,21,23,20],[20,24,19,24]];
   for(const [hx,hy,lx,ly] of rampPairs){for(const [x,y] of [[hx,hy],[lx,ly]]){this.ramps[y*SIZE+x]=1;this.tiles[y*SIZE+x]=0;}}
   // Raised boundary cells are real cliff faces. Ramp mouths are the only passable breaks in the ring.
   for(let y=1;y<SIZE-1;y++)for(let x=1;x<SIZE-1;x++){const id=y*SIZE+x;if(!this.elevation[id]||this.ramps[id])continue;
    if(!this.elevation[id-1]||!this.elevation[id+1]||!this.elevation[id-SIZE]||!this.elevation[id+SIZE])this.tiles[id]=4;
   }
+  // Keep the 7x7 starting camp open and buildable.
+  const camp=Math.floor(SIZE/2);for(let y=camp-3;y<=camp+3;y++)for(let x=camp-3;x<=camp+3;x++){const id=y*SIZE+x;this.tiles[id]=0;this.elevation[id]=0;this.ramps[id]=0;}
  }
  terrain(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 1;return this.tiles[Math.floor(y)*SIZE+Math.floor(x)];}
  elevationAt(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 0;return this.elevation[Math.floor(y)*SIZE+Math.floor(x)];}

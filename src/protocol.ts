@@ -1,3 +1,5 @@
+import {SIZE} from './data';
+
 const COMMANDS=new Set(['build','repair','upgrade','pickup','cancel','active0','active1','exchange:0','exchange:1']);
 const STATES=new Set(['menu','playing','won','lost']);
 
@@ -9,7 +11,7 @@ const array=(value:unknown,max:number):value is unknown[]=>Array.isArray(value)&
 const point=(value:unknown):value is Point=>{
  if(!object(value))return false;
  const x=value.x,y=value.y;
- return finite(x)&&finite(y)&&x>=-4&&x<=68&&y>=-4&&y<=68;
+ return finite(x)&&finite(y)&&x>=-4&&x<=SIZE+4&&y>=-4&&y<=SIZE+4;
 };
 
 export function validInput(value:unknown):value is Point{

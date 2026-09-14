@@ -57,7 +57,7 @@ export class BattleScene extends Phaser.Scene{
    g.lineStyle(2,0xc2ae79,.36);if(dx){g.lineBetween(px+2,py+5,px+TILE-2,py+5).lineBetween(px+2,py+TILE-5,px+TILE-2,py+TILE-5);g.lineStyle(1,0xe0cb91,.2).lineBetween(px+3,py+TILE/2,px+TILE-3,py+TILE/2);}else{g.lineBetween(px+5,py+2,px+5,py+TILE-2).lineBetween(px+TILE-5,py+2,px+TILE-5,py+TILE-2);g.lineStyle(1,0xe0cb91,.2).lineBetween(px+TILE/2,py+3,px+TILE/2,py+TILE-3);}
   }
   // A weathered foundation marks the initial camp without constraining construction.
-  g.lineStyle(1,0xd7c896,.12).strokeRect(29*TILE,29*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
+  const camp=SIZE/2-3;g.lineStyle(1,0xd7c896,.12).strokeRect(camp*TILE,camp*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
   for(let i=1;i<SIZE;i++)g.lineBetween(i*TILE,0,i*TILE,SIZE*TILE).lineBetween(0,i*TILE,SIZE*TILE,i*TILE);
  }
  update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);if(this.online){const input={x:(this.keys.has('KeyD')?1:0)-(this.keys.has('KeyA')?1:0),y:(this.keys.has('KeyS')?1:0)-(this.keys.has('KeyW')?1:0)};input.x=input.x||this.touch.x;input.y=input.y||this.touch.y;if(s.players[this.localSlot])s.players[this.localSlot].input=input;this.onOnlineInput?.(input);}else{const controls=[['KeyA','KeyD','KeyW','KeyS'],['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'],['KeyJ','KeyL','KeyI','KeyK']];for(let i=0;i<s.players.length;i++){const [left,right,up,down]=controls[i];s.players[i].input={x:(this.keys.has(right)?1:0)-(this.keys.has(left)?1:0),y:(this.keys.has(down)?1:0)-(this.keys.has(up)?1:0)};}s.player.input={x:s.player.input.x||this.touch.x,y:s.player.input.y||this.touch.y};}
