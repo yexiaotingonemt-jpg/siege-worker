@@ -23,6 +23,7 @@ export class BattleScene extends Phaser.Scene{
  drawMap(){const g=this.world,rand=random(773);g.clear();g.fillStyle(0x2d4739).fillRect(0,0,SIZE*TILE,SIZE*TILE);
   for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const px=x*TILE,py=y*TILE,type=this.sim.map.tiles[y*SIZE+x],shade=rand();
    if(type===2){g.fillStyle(shade>.5?0x315b5d:0x345f61).fillRect(px,py,TILE,TILE);g.lineStyle(1,0x86bab1,.18);g.lineBetween(px+8,py+12,px+24,py+12);if(shade>.6)g.lineBetween(px+22,py+29,px+35,py+29);}
+   else if(type===3){g.fillStyle(shade>.55?0x4a4934:0x444630).fillRect(px,py,TILE,TILE);g.fillStyle(0x776a47,.22).fillEllipse(px+14,py+13,18,8).fillEllipse(px+31,py+29,15,7);g.lineStyle(1,0xa69561,.24).strokeCircle(px+13,py+13,4).strokeCircle(px+31,py+29,3);}
    else{g.fillStyle(shade>.75?0x354e3d:shade>.3?0x314b39:0x304837).fillRect(px,py,TILE,TILE);
     if(type===1){g.fillStyle(0x122920,.4).fillEllipse(px+24,py+34,41,17);g.fillStyle(0x60766a).fillPoints([{x:px+3,y:py+24},{x:px+8,y:py+8},{x:px+28,y:py+3},{x:px+40,y:py+15},{x:px+36,y:py+34},{x:px+13,y:py+36}],true);g.fillStyle(0x809083).fillTriangle(px+8,py+8,px+28,py+3,px+22,py+21);g.fillStyle(0x4b6157).fillTriangle(px+22,py+21,px+40,py+15,px+36,py+34);g.lineStyle(1,0x9dab92,.4).lineBetween(px+9,py+9,px+26,py+5);}
     else{if(shade>.52){const a=px+rand()*34+4,b=py+rand()*32+5;g.lineStyle(1,0x73945d,.27).lineBetween(a,b,a-2,b-4).lineBetween(a,b,a+3,b-5);}if(shade>.91){g.fillStyle(0xb9b57b,.45).fillCircle(px+14,py+24,1.3).fillCircle(px+18,py+22,1);}}

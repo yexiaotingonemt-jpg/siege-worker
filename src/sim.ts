@@ -43,7 +43,7 @@ export class Simulation{
   if(action==='build'){
    if(t){if(t.progress<1){this.task={type:'build',id:t.id};this.message('继续施工，已保留之前的进度');}else this.message('这里已有建筑：R修复 / F升级');return;}
    const p=center(cell(this.player)),d=TOWERS[this.selected];
-   if(this.map.terrain(p.x,p.y)){this.message('石头和河流上无法施工','bad');return;}
+   if(this.map.terrain(p.x,p.y)){this.message('石头、河流和泥泞地上无法施工','bad');return;}
    if(this.player.level<d.unlock){this.message(`达到${d.unlock}级解锁${d.name}`,'bad');return;}
    if(this.buildings.length>=this.cap){this.message('建筑名额已满，包含未完成工地','bad');return;}
    if(this.player.gold<d.cost){this.message('建造点不足','bad');return;}
@@ -119,7 +119,7 @@ export class Simulation{
   this.updateTask(dt);
   if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===20){this.state='won';this.task=null;this.soundEvents.push('won');}
  }
- updatePlayer(dt:number){let {x,y}=this.input;const len=Math.hypot(x,y);if(!len)return;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:this.player.x,y:this.player.y};this.move(this.player,x*this.speed*dt,y*this.speed*dt,.25,false);
+ updatePlayer(dt:number){let {x,y}=this.input;const len=Math.hypot(x,y);if(!len)return;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:this.player.x,y:this.player.y},terrainSpeed=this.map.moveFactor(this.player.x,this.player.y);this.move(this.player,x*this.speed*terrainSpeed*dt,y*this.speed*terrainSpeed*dt,.25,false);
   if(distance(before,this.player)>.0001){this.task=null;if(this.swap!==null&&this.drops.find(d=>d.id===this.swap)&&cell(this.drops.find(d=>d.id===this.swap)!)!==cell(this.player))this.swap=null;}
  }
  move(p:Point,dx:number,dy:number,r:number,enemy:boolean){const block=enemy?this.blocked:undefined;const steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/.18));for(let i=0;i<steps;i++){if(this.map.canStand(p.x+dx/steps,p.y,r,block))p.x+=dx/steps;if(this.map.canStand(p.x,p.y+dy/steps,r,block))p.y+=dy/steps;}}
@@ -161,7 +161,7 @@ export class Simulation{
    if(obstacle&&obstacle.id!==e.target){if(this.canHit(e,obstacle,obstacle.id)){e.target=obstacle.id;if(this.time>=e.next){e.wind=this.time+d.wind;e.next=this.time+d.interval;}continue;}}
    if(best===ci&&distance(e,cp)>.3&&e.target!==0)dest=cp;
    let dx=dest.x-e.x,dy=dest.y-e.y,n=Math.hypot(dx,dy);if(n>.001){dx/=n;dy/=n;const slow=e.slowUntil>this.time?e.slow:1;let foam=1;for(const z of this.zones)if(z.kind==='foam'&&z.until>this.time&&distance(e,z)<=z.radius)foam=Math.min(foam,d.boss?.75:.5);
-    const speed=d.speed*(e.kind==='boss4'&&e.hp/e.maxHp<.4?1.15:1)*Math.max(.4,Math.min(slow,foam));
+    const speed=d.speed*(e.kind==='boss4'&&e.hp/e.maxHp<.4?1.15:1)*Math.max(.4,Math.min(slow,foam))*this.map.moveFactor(e.x,e.y);
     // Gentle crowd separation, bounded so it cannot reverse forward progress.
     let sx=0,sy=0;for(const other of this.nearby(e,.8)){if(other.id===e.id)continue;const gap=distance(e,other),wanted=(d.r+ENEMIES[other.kind].r)*.7;if(gap>0&&gap<wanted){sx+=(e.x-other.x)/gap*(wanted-gap);sy+=(e.y-other.y)/gap*(wanted-gap);}}
     const sep=Math.hypot(sx,sy);if(sep>.35){sx*=.35/sep;sy*=.35/sep;}
