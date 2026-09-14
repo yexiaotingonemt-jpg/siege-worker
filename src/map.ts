@@ -37,8 +37,11 @@ export class WorldMap{
  moveFactor(x:number,y:number){return this.terrain(x,y)===3?.7:1;}
  canFly(x:number,y:number,r=.25){return x-r>=1&&y-r>=1&&x+r<SIZE-1&&y+r<SIZE-1;}
  canStand(x:number,y:number,r=.25,blocked?:Set<number>){
+  // Touching an obstacle edge is valid; sample just inside the circular footprint
+  // so a one-cell-wide unit can pass through a one-cell-wide ramp.
+  const sampleRadius=Math.max(0,r-1e-4);
   const baseElevation=this.elevationAt(x,y),baseRamp=this.rampAt(x,y);
-  for(const [dx,dy] of [[-r,-r],[r,-r],[-r,r],[r,r],[0,0]]){
+  for(const [dx,dy] of [[-sampleRadius,-sampleRadius],[sampleRadius,-sampleRadius],[-sampleRadius,sampleRadius],[sampleRadius,sampleRadius],[0,0]]){
    const sx=x+dx,sy=y+dy;
    if(this.blockedTerrain(sx,sy)||blocked?.has(cell({x:sx,y:sy})))return false;
    if(this.elevationAt(sx,sy)!==baseElevation&&!baseRamp&&!this.rampAt(sx,sy))return false;
@@ -59,7 +62,7 @@ export function flow(map:WorldMap,target:Point,blocked:Set<number>,breakCost?:Ma
    if(!air&&(tile===1||tile===2||tile===4))continue;
    if(!air&&map.elevation[at]!==map.elevation[ni]&&!map.ramps[at]&&!map.ramps[ni])continue;
    if(!air&&blocked.has(ni)&&ni!==id&&!breakCost)continue;
-   if(!air&&clearance>.5&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance))continue;
+   if(!air&&clearance>=.5&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance))continue;
    const nd=Math.fround(d+1+(!air&&tile===3?.45:0)+(air?0:(breakCost?.get(ni)||0)));if(nd<dist[ni]){dist[ni]=nd;push(ni,nd);}}
  }
  return dist;
