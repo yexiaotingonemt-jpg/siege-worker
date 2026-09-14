@@ -107,7 +107,7 @@ export class BattleScene extends Phaser.Scene{
    else if(v.kind==='arc'){f.lineStyle(2,v.color,a).lineBetween(x,y,v.tx!*TILE,v.ty!*TILE);}
    else{f.fillStyle(v.color,a*.35).fillCircle(x,y,v.size*TILE*(.2+v.age/v.life*.8));for(let i=0;i<5;i++){const r=v.size*TILE*v.age/v.life;f.fillStyle(v.color,a).fillCircle(x+Math.cos(i*1.3)*r,y+Math.sin(i*1.3)*r,2);}}
   }
-  for(const worker of s.players)if(worker.task){const t=s.buildings.find(b=>b.id===worker.task!.id);if(t){const wx=worker.x*TILE,wy=worker.y*TILE;f.lineStyle(2,worker.color,.8).lineBetween(wx,wy-7,t.x*TILE,t.y*TILE);text(wx,wy-49,worker.task.type==='build'?'施工 '+Math.floor(t.progress*100)+'%':'修复中','#f2d795',12);}}
+  for(const worker of s.players)if(worker.task){const t=s.buildings.find(b=>b.id===worker.task!.id);if(t){const wx=worker.x*TILE,wy=worker.y*TILE,repairSlowed=worker.task.type==='repair'&&s.underAttack(worker);f.lineStyle(2,worker.color,.8).lineBetween(wx,wy-7,t.x*TILE,t.y*TILE);text(wx,wy-49,worker.task.type==='build'?'施工 '+Math.floor(t.progress*100)+'%':repairSlowed?'受攻击 · 修复速度−50%':'修复中',repairSlowed?'#ffb39f':'#f2d795',12);}}
  }
  bar(g:Phaser.GameObjects.Graphics,x:number,y:number,w:number,h:number,fraction:number,color:number){g.fillStyle(0x11231d,.9).fillRoundedRect(x-1,y-1,w+2,h+2,2);g.fillStyle(color).fillRect(x,y,w*Math.max(0,Math.min(1,fraction)),h);}
  tower(g:Phaser.GameObjects.Graphics,t:Building){const x=t.x*TILE,y=t.y*TILE,d=TOWERS[t.kind];g.fillStyle(0x10241b,.4).fillEllipse(x+2,y+15,39,15);

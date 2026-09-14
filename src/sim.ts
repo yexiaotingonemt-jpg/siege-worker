@@ -37,6 +37,8 @@ export class Simulation{
  get speed(){return 3.2*(1+.02*(this.player.level-1))*(this.active('boots')?1.6:1);}
  get buildRate(){return (1+.05*(this.player.level-1))*(this.active('build')?2:1);}
  get repairRate(){return REPAIR_SPEED*(1+.05*(this.player.level-1))*(this.active('repair')?2:1);}
+ underAttack(worker:Worker|number=this.focused){const p=typeof worker==='number'?this.players[worker]:worker;if(!p||p.hp<=0)return false;return this.enemies.some(e=>e.hp>0&&e.target===p.id&&this.canHit(e,p,p.id))||this.projectiles.some(v=>v.kind==='enemy'&&v.target===p.id);}
+ repairRateFor(worker:Worker|number=this.focused){return this.repairRate*(this.underAttack(worker)?.5:1);}
  get invincible(){return this.active('invincible');}
  active(kind:ActiveKind){return this.gear.some(g=>g?.kind===kind&&g.until>this.time);}
  b(kind:BuffKind){return this.buffs[kind]||0;}
@@ -172,7 +174,7 @@ export class Simulation{
  }if(e)this.relocateBucket(e,oldBucket);}
  updateTasks(dt:number){for(const p of this.players){if(!p.task||p.hp<=0)continue;const task=p.task,t=this.buildings.find(t=>t.id===task.id);if(!t||cell(t)!==cell(p)){p.task=null;continue;}
   const d=TOWERS[t.kind];if(task.type==='build'){t.progress=Math.min(1,t.progress+dt*this.buildRate/d.work);if(t.progress>=1){const ratio=t.hp/t.maxHp;t.maxHp=d.hp;t.hp=ratio*d.hp;this.attributes(t);for(const w of this.players)if(w.task?.id===t.id)w.task=null;this.stats.built++;this.fx('ring',t,d.color,1.5,.6);this.message(d.name+' 建造完成');this.soundEvents.push('complete');}}
-  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRate/d.work*dt);if(heal<.0001){p.task=null;continue;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(p.gold+1e-8<fee){p.task=null;this.message(`P${this.players.indexOf(p)+1}建造点不足，修复暂停`,'bad');continue;}this.spend(fee,p);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)for(const w of this.players)if(w.task?.id===t.id)w.task=null;}
+  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRateFor(p)/d.work*dt);if(heal<.0001){p.task=null;continue;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(p.gold+1e-8<fee){p.task=null;this.message(`P${this.players.indexOf(p)+1}建造点不足，修复暂停`,'bad');continue;}this.spend(fee,p);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)for(const w of this.players)if(w.task?.id===t.id)w.task=null;}
   }
  }
  bucketKey(p:Point){return Math.floor(p.x/3)+Math.floor(p.y/3)*24;}
