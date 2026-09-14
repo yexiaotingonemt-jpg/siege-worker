@@ -1,9 +1,9 @@
 import Phaser from 'phaser';
 import {ENEMIES,isActive,KEYS,SIZE,TILE,TOWERS} from './data';
 import {distance,random} from './map';
-import {Simulation,type Building,type Enemy} from './sim';
+import {Simulation,type Building,type Enemy,type Worker} from './sim';
 export class BattleScene extends Phaser.Scene{
- sim:Simulation;world!:Phaser.GameObjects.Graphics;actors!:Phaser.GameObjects.Graphics;effects!:Phaser.GameObjects.Graphics;labels:Phaser.GameObjects.Text[]=[];
+ sim:Simulation;world!:Phaser.GameObjects.Graphics;actors!:Phaser.GameObjects.Graphics;effects!:Phaser.GameObjects.Graphics;labels:Phaser.GameObjects.Text[]=[];workerLabels:Phaser.GameObjects.Text[]=[];
  keys=new Set<string>();acc=0;onTick:()=>void;lastUI=0;touch={x:0,y:0};
  constructor(sim:Simulation,onTick:()=>void){super('battle');this.sim=sim;this.onTick=onTick;}
  create(){this.world=this.add.graphics();this.actors=this.add.graphics();this.effects=this.add.graphics();this.drawMap();
@@ -12,8 +12,10 @@ export class BattleScene extends Phaser.Scene{
    const s=this.sim;if(s.state!=='playing')return;
    if(e.code==='KeyP'){s.paused=!s.paused;this.keys.clear();this.onTick();return;}
    if(e.code==='Escape'){if(s.swap!==null||s.task){s.command('cancel');}else s.paused=!s.paused;this.keys.clear();this.onTick();return;}
-   if(/^Digit[1-5]$/.test(e.code))s.selected=KEYS[Number(e.code.slice(-1))-1];
-   const actions:Record<string,Parameters<Simulation['command']>[0]>={KeyE:'build',KeyR:'repair',KeyF:'upgrade',KeyG:'pickup',KeyQ:'active0',Space:'active1'};if(actions[e.code])s.command(actions[e.code]);this.onTick();
+   if(/^Digit[1-5]$/.test(e.code)){s.players[0].selected=KEYS[Number(e.code.slice(-1))-1];s.focusPlayer=0;}
+   const moveOwner:Record<string,number>={KeyW:0,KeyA:0,KeyS:0,KeyD:0,ArrowUp:1,ArrowLeft:1,ArrowDown:1,ArrowRight:1,KeyI:2,KeyJ:2,KeyK:2,KeyL:2};if(moveOwner[e.code]!==undefined&&moveOwner[e.code]<s.playerCount)s.focusPlayer=moveOwner[e.code];
+   const cycles:Record<string,[number,number]>={BracketLeft:[1,-1],BracketRight:[1,1],KeyN:[2,-1],KeyM:[2,1]};const cycle=cycles[e.code];if(cycle&&cycle[0]<s.playerCount){const p=s.players[cycle[0]],i=KEYS.indexOf(p.selected);p.selected=KEYS[(i+cycle[1]+KEYS.length)%KEYS.length];s.focusPlayer=cycle[0];}
+   const actions:Record<string,[number,Parameters<Simulation['command']>[0]]>={KeyE:[0,'build'],KeyR:[0,'repair'],KeyF:[0,'upgrade'],KeyG:[0,'pickup'],KeyQ:[0,'active0'],Space:[0,'active1'],Enter:[1,'build'],Slash:[1,'repair'],Period:[1,'upgrade'],Comma:[1,'pickup'],Semicolon:[1,'active0'],Quote:[1,'active1'],KeyO:[2,'build'],KeyU:[2,'repair'],KeyY:[2,'upgrade'],KeyH:[2,'pickup'],KeyV:[2,'active0'],KeyB:[2,'active1']};const action=actions[e.code];if(action&&action[0]<s.playerCount)s.command(action[1],action[0]);this.onTick();
   });this.input.keyboard!.on('keyup',(e:KeyboardEvent)=>this.keys.delete(e.code));
   window.addEventListener('blur',()=>{this.keys.clear();this.touch={x:0,y:0};if(this.sim.state==='playing'){this.sim.paused=true;this.onTick();}});
   this.input.on('pointerdown',(pointer:Phaser.Input.Pointer)=>{if(pointer.rightButtonDown())this.sim.command('cancel');});this.game.canvas.addEventListener('contextmenu',e=>e.preventDefault());
@@ -51,11 +53,11 @@ export class BattleScene extends Phaser.Scene{
   g.lineStyle(1,0xd7c896,.12).strokeRect(29*TILE,29*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
   for(let i=1;i<SIZE;i++)g.lineBetween(i*TILE,0,i*TILE,SIZE*TILE).lineBetween(0,i*TILE,SIZE*TILE,i*TILE);
  }
- update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);const x=(this.keys.has('KeyD')||this.keys.has('ArrowRight')?1:0)-(this.keys.has('KeyA')||this.keys.has('ArrowLeft')?1:0),y=(this.keys.has('KeyS')||this.keys.has('ArrowDown')?1:0)-(this.keys.has('KeyW')||this.keys.has('ArrowUp')?1:0);s.input={x:x||this.touch.x,y:y||this.touch.y};
+ update(_time:number,delta:number){const s=this.sim;this.acc+=Math.min(delta/1000,.15);const controls=[['KeyA','KeyD','KeyW','KeyS'],['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'],['KeyJ','KeyL','KeyI','KeyK']];for(let i=0;i<s.players.length;i++){const [left,right,up,down]=controls[i];s.players[i].input={x:(this.keys.has(right)?1:0)-(this.keys.has(left)?1:0),y:(this.keys.has(down)?1:0)-(this.keys.has(up)?1:0)};}s.player.input={x:s.player.input.x||this.touch.x,y:s.player.input.y||this.touch.y};
   while(this.acc>=1/30){s.tick(1/30);this.acc-=1/30;}
-  this.cameras.main.centerOn(s.player.x*TILE,s.player.y*TILE-30);this.draw();if(_time-this.lastUI>100){this.lastUI=_time;this.onTick();}
+  const party=s.alivePlayers(),center=s.partyCenter(),spreadX=Math.max(...party.map(p=>Math.abs(p.x-center.x)),0)*TILE*2,spreadY=Math.max(...party.map(p=>Math.abs(p.y-center.y)),0)*TILE*2,base=this.scale.width<700?.78:1,fit=Math.min(base,(this.scale.width-180)/Math.max(600,spreadX+420),(this.scale.height-170)/Math.max(480,spreadY+360));this.cameras.main.setZoom(Math.max(.55,fit)).centerOn(center.x*TILE,center.y*TILE-30);this.draw();if(_time-this.lastUI>100){this.lastUI=_time;this.onTick();}
  }
- draw(){const s=this.sim,g=this.actors,f=this.effects;g.clear();f.clear();for(const l of this.labels)l.setVisible(false);let label=0;
+ draw(){const s=this.sim,g=this.actors,f=this.effects;g.clear();f.clear();for(const l of [...this.labels,...this.workerLabels])l.setVisible(false);let label=0;
   const text=(x:number,y:number,str:string,color='#fff0c7',size=13)=>{let t=this.labels[label];if(!t){t=this.add.text(x,y,str,{fontFamily:'Arial, Microsoft YaHei, sans-serif',fontSize:size,color,stroke:'#182921',strokeThickness:3}).setOrigin(.5);this.labels.push(t);}t.setPosition(x,y).setText(str).setColor(color).setFontSize(size).setVisible(true);label++;};
   const view=this.cameras.main.worldView,visible=(p:{x:number;y:number},r=2)=>p.x*TILE>view.x-r*TILE&&p.x*TILE<view.right+r*TILE&&p.y*TILE>view.y-r*TILE&&p.y*TILE<view.bottom+r*TILE;
   for(const z of s.zones){if(!visible(z,8))continue;const x=z.x*TILE,y=z.y*TILE,r=z.radius*TILE;
@@ -64,26 +66,26 @@ export class BattleScene extends Phaser.Scene{
    else{const pulse=.12+Math.sin(s.time*14)*.045;g.fillStyle(z.fired?0xc56a52:0xe48468,pulse).fillCircle(x,y,r);g.lineStyle(2,0xffb192,.9).strokeCircle(x,y,r);if(!z.fired){const remaining=Math.max(0,z.start-s.time);text(x,y-10,remaining.toFixed(1)+'s','#ffc8a6',16);g.lineStyle(1,0xffc9ad,.5).lineBetween(x-r*.35,y-r*.35,x+r*.35,y+r*.35).lineBetween(x+r*.35,y-r*.35,x-r*.35,y+r*.35);}}
   }
   for(const b of s.batches)if(!b.done&&b.point&&s.time>=b.time-2){const p=b.point,x=p.x*TILE,y=p.y*TILE;g.lineStyle(2,0xdd8b76,.7).strokeCircle(x,y,TILE*(1+.2*Math.sin(s.time*8)));g.lineStyle(1,0xdd8b76,.3).strokeCircle(x,y,TILE*1.6);if(visible(p))text(x,y-48,'敌军集结','#edb19b',12);}
-  const p=s.player,px=p.x*TILE,py=p.y*TILE,cx=(Math.floor(p.x)+.5)*TILE,cy=(Math.floor(p.y)+.5)*TILE;
-  if(s.state==='playing'){const occupied=s.atPlayer();g.fillStyle(occupied?0xe2c181:0xf2d69a,.055).fillRect(cx-21,cy-21,42,42);g.lineStyle(1.5,0xf2d69a,.7).strokeRect(cx-20,cy-20,40,40);
-   const r=occupied?.range||TOWERS[s.selected].range;if(r){g.lineStyle(1,occupied?TOWERS[occupied.kind].color:TOWERS[s.selected].color,.17).strokeCircle(cx,cy,r*TILE);}
-   if(Object.keys(s.buffs).length||s.active('overload'))g.lineStyle(1,0xe2d08c,.13).strokeCircle(px,py,5*TILE);
+  const p=s.focused,px=p.x*TILE,py=p.y*TILE,cx=(Math.floor(p.x)+.5)*TILE,cy=(Math.floor(p.y)+.5)*TILE;
+  if(s.state==='playing'){const occupied=s.atPlayer(p);g.fillStyle(occupied?0xe2c181:0xf2d69a,.055).fillRect(cx-21,cy-21,42,42);g.lineStyle(1.5,p.color,.8).strokeRect(cx-20,cy-20,40,40);
+   const r=occupied?.range||TOWERS[p.selected].range;if(r){g.lineStyle(1,occupied?TOWERS[occupied.kind].color:TOWERS[p.selected].color,.17).strokeCircle(cx,cy,r*TILE);}
+   if(Object.keys(s.buffs).length||s.active('overload'))for(const worker of s.alivePlayers())g.lineStyle(1,worker.color,.13).strokeCircle(worker.x*TILE,worker.y*TILE,5*TILE);
   }
   for(const d of s.drops){if(!visible(d))continue;const x=d.x*TILE,y=d.y*TILE,bob=Math.sin(s.time*3+d.id)*2;g.fillStyle(isActive(d.kind)?0xf1c96d:0x9fd5c8,.07).fillCircle(x,y,25);g.lineStyle(1,isActive(d.kind)?0xf1c96d:0x9fd5c8,.55).strokeCircle(x,y,15);g.fillStyle(isActive(d.kind)?0xd6a550:0x91c9b9).fillTriangle(x,y-11+bob,x-8,y+bob,x,y+10+bob).fillTriangle(x,y-11+bob,x+8,y+bob,x,y+10+bob);g.fillStyle(0xffe6a8).fillCircle(x-2,y-3+bob,2);}
   const pointer=this.input.activePointer,mouse=this.cameras.main.getWorldPoint(pointer.x,pointer.y);
   const hovered=this.input.manager.isOver? s.enemies.filter(e=>e.hp>0&&Math.hypot(e.x*TILE-mouse.x,e.y*TILE-12-mouse.y)<24).sort((a,b)=>distance(a,{x:mouse.x/TILE,y:mouse.y/TILE})-distance(b,{x:mouse.x/TILE,y:mouse.y/TILE}))[0]:undefined;
-  if(hovered){const e=hovered,d=ENEMIES[e.kind],hit=s.canHit(e,p,0),color=hit?0xffa084:0xeac88d;
+  if(hovered){const e=hovered,d=ENEMIES[e.kind],hit=s.canHit(e,p,p.id),color=hit?0xffa084:0xeac88d;
    g.lineStyle(2,color,.8).strokeCircle(e.x*TILE,e.y*TILE,(d.range+d.r+.25)*TILE);
    const target=s.target(e.target);if(target)g.lineStyle(2,0xffa084,.8).lineBetween(e.x*TILE,e.y*TILE,target.x*TILE,target.y*TILE);
-   const reason=s.invincible?'玩家无敌':s.edgeDistance(e,p,0)>d.range?'玩家在射程外':!d.air&&!s.map.los(e,p)?'岩石遮挡':e.tauntUntil>s.time?'受到嘲讽':'玩家在射程内';
-   const name=e.target===0?'玩家':e.target<0?'无':TOWERS[s.buildings.find(t=>t.id===e.target)?.kind??'wall'].name;
+   const reason=s.invincible?'玩家无敌':s.edgeDistance(e,p,p.id)>d.range?'所选玩家在射程外':!d.air&&!s.map.los(e,p)?'岩石遮挡':e.tauntUntil>s.time?'受到嘲讽':'所选玩家在射程内';
+   const targetPlayer=s.playerForTarget(e.target),name=targetPlayer?`P${s.players.indexOf(targetPlayer)+1}`:e.target===-1?'无':TOWERS[s.buildings.find(t=>t.id===e.target)?.kind??'wall'].name;
    text(e.x*TILE,e.y*TILE-62,`${d.name} · 目标：${name}`,'#ffe3bd',12);
    text(e.x*TILE,e.y*TILE-45,`${reason} · 圆圈为对玩家攻击边界`,'#ffe3bd',11);
   }
-  const entities:({type:'tower';v:Building}|{type:'enemy';v:Enemy}|{type:'player';v:typeof p})[]=[...s.buildings.map(v=>({type:'tower' as const,v})),...s.enemies.filter(e=>visible(e)).map(v=>({type:'enemy' as const,v})),{type:'player',v:p}];entities.sort((a,b)=>(a.v.y+(a.type==='player'?.15:0))-(b.v.y+(b.type==='player'?.15:0)));
+  const entities:({type:'tower';v:Building}|{type:'enemy';v:Enemy}|{type:'player';v:Worker})[]=[...s.buildings.map(v=>({type:'tower' as const,v})),...s.enemies.filter(e=>visible(e)).map(v=>({type:'enemy' as const,v})),...s.players.map(v=>({type:'player' as const,v}))];entities.sort((a,b)=>(a.v.y+(a.type==='player'?.15:0))-(b.v.y+(b.type==='player'?.15:0)));
   for(const entity of entities){const v=entity.v;if(!visible(v))continue;if(entity.type==='tower'){this.tower(g,entity.v);const t=entity.v;if(t.hp<t.maxHp-.1||s.atPlayer()?.id===t.id||t.progress<1){this.bar(g,t.x*TILE-17,t.y*TILE-37,34,3,t.hp/t.maxHp,0x9fc5a2);if(t.progress<1)this.bar(g,t.x*TILE-17,t.y*TILE+24,34,3,t.progress,0xe6bb6e);}if(t.level>1)text(t.x*TILE,t.y*TILE+14,['','II','III','IV'][t.level-1],'#f4dcab',9);}
    else if(entity.type==='enemy'){this.enemy(g,entity.v);const e=entity.v,d=ENEMIES[e.kind];if(d.boss){this.bar(g,e.x*TILE-30,e.y*TILE-49,60,4,e.hp/e.maxHp,0xdc826f);text(e.x*TILE,e.y*TILE-62,d.name,'#e8b19b',11);}else if(e.hp<e.maxHp)this.bar(g,e.x*TILE-12,e.y*TILE-(d.air?43:22),24,2,e.hp/e.maxHp,0xc48b79);}
-   else this.worker(g,px,py);
+   else this.worker(g,entity.v,s.players.indexOf(entity.v));
   }
   for(const b of s.buildings){if(!visible(b))continue;if(b.shield>0&&b.shieldUntil>s.time){f.lineStyle(2,0x9adfe3,.7).strokeRoundedRect(b.x*TILE-21,b.y*TILE-32,42,52,10);this.bar(f,b.x*TILE-17,b.y*TILE-42,34,2,Math.min(1,b.shield/(b.maxHp*.3)),0x9adfe3);}}
   for(const b of s.enemies){if(!visible(b))continue;if(b.wind>s.time){const target=s.target(b.target);if(target){f.lineStyle(1,0xf0b3a3,.5).lineBetween(b.x*TILE,b.y*TILE,target.x*TILE,target.y*TILE);}}if(b.tauntUntil>s.time)text(b.x*TILE+12,b.y*TILE-25,'⚑','#ceb1f4',12);if(b.stunUntil>s.time)text(b.x*TILE,b.y*TILE-27,'✦','#fff0a2',15);}
@@ -97,7 +99,7 @@ export class BattleScene extends Phaser.Scene{
    else if(v.kind==='arc'){f.lineStyle(2,v.color,a).lineBetween(x,y,v.tx!*TILE,v.ty!*TILE);}
    else{f.fillStyle(v.color,a*.35).fillCircle(x,y,v.size*TILE*(.2+v.age/v.life*.8));for(let i=0;i<5;i++){const r=v.size*TILE*v.age/v.life;f.fillStyle(v.color,a).fillCircle(x+Math.cos(i*1.3)*r,y+Math.sin(i*1.3)*r,2);}}
   }
-  if(s.task){const t=s.buildings.find(b=>b.id===s.task!.id);if(t){f.lineStyle(2,0xf4d694,.8).lineBetween(px,py-7,t.x*TILE,t.y*TILE);text(px,py-49,s.task.type==='build'?'施工 '+Math.floor(t.progress*100)+'%':'修复中','#f2d795',12);}}
+  for(const worker of s.players)if(worker.task){const t=s.buildings.find(b=>b.id===worker.task!.id);if(t){const wx=worker.x*TILE,wy=worker.y*TILE;f.lineStyle(2,worker.color,.8).lineBetween(wx,wy-7,t.x*TILE,t.y*TILE);text(wx,wy-49,worker.task.type==='build'?'施工 '+Math.floor(t.progress*100)+'%':'修复中','#f2d795',12);}}
  }
  bar(g:Phaser.GameObjects.Graphics,x:number,y:number,w:number,h:number,fraction:number,color:number){g.fillStyle(0x11231d,.9).fillRoundedRect(x-1,y-1,w+2,h+2,2);g.fillStyle(color).fillRect(x,y,w*Math.max(0,Math.min(1,fraction)),h);}
  tower(g:Phaser.GameObjects.Graphics,t:Building){const x=t.x*TILE,y=t.y*TILE,d=TOWERS[t.kind];g.fillStyle(0x10241b,.4).fillEllipse(x+2,y+15,39,15);
@@ -118,10 +120,11 @@ export class BattleScene extends Phaser.Scene{
   if(d.boss){g.fillStyle(0xe4b785).fillTriangle(x-8,y-25,x-5,y-34,x-1,y-24).fillTriangle(x+2,y-24,x+6,y-34,x+9,y-24);}
   if(e.slowUntil>this.sim.time){g.lineStyle(1,0xa0d9e1,.6).strokeEllipse(x,y+11,24*scale,9*scale);}
  }
- worker(g:Phaser.GameObjects.Graphics,x:number,y:number){const s=this.sim,bob=s.input.x||s.input.y?Math.sin(s.time*14)*1.7:0;g.fillStyle(0x091e17,.45).fillEllipse(x+2,y+13,26,12);
+ worker(g:Phaser.GameObjects.Graphics,p:Worker,index:number){const s=this.sim,x=p.x*TILE,y=p.y*TILE,bob=p.input.x||p.input.y?Math.sin(s.time*14)*1.7:0;g.fillStyle(0x091e17,.45).fillEllipse(x+2,y+13,26,12);
   if(s.invincible)g.lineStyle(2,0xf9e6b2,.7+Math.sin(s.time*8)*.2).strokeCircle(x,y-3,24);
-  const flash=s.player.hurtUntil>s.time;g.fillStyle(0x314f58).fillRect(x-8,y+4,6,11).fillRect(x+2,y+4,6,11);g.fillStyle(flash?0xffc1ad:0xe0ad5b).fillRoundedRect(x-10,y-10+bob,20,20,4);g.fillStyle(0x3f7772).fillRect(x-5,y-9+bob,10,18);g.lineStyle(2,0xd9b980).lineBetween(x-4,y-8,x-4,y+8).lineBetween(x+4,y-8,x+4,y+8);g.fillStyle(0xe1b68b).fillCircle(x,y-16+bob,7);g.fillStyle(0xf0c563).fillRoundedRect(x-10,y-26+bob,20,12,6).fillRect(x-13,y-17+bob,26,4);g.fillStyle(0xffdd8a).fillRect(x-2,y-27+bob,4,12);
-  const swing=s.task?Math.sin(s.time*18)*8:0;g.lineStyle(3,0xb6a080).lineBetween(x+10,y+2,x+19,y-9+swing);g.fillStyle(0xb9c5b2).fillRoundedRect(x+14,y-15+swing,13,6,2);g.fillStyle(0xe8d5ae).fillCircle(x+10,y,3);
+  const flash=p.hurtUntil>s.time,body=p.hp>0?p.color:0x625f58;g.fillStyle(0x314f58).fillRect(x-8,y+4,6,11).fillRect(x+2,y+4,6,11);g.fillStyle(flash?0xffc1ad:body).fillRoundedRect(x-10,y-10+bob,20,20,4);g.fillStyle(0x3f7772).fillRect(x-5,y-9+bob,10,18);g.lineStyle(2,0xd9b980).lineBetween(x-4,y-8,x-4,y+8).lineBetween(x+4,y-8,x+4,y+8);g.fillStyle(0xe1b68b).fillCircle(x,y-16+bob,7);g.fillStyle(body).fillRoundedRect(x-10,y-26+bob,20,12,6).fillRect(x-13,y-17+bob,26,4);g.fillStyle(0xffedb0).fillRect(x-2,y-27+bob,4,12);
+  const swing=p.task?Math.sin(s.time*18)*8:0;g.lineStyle(3,0xb6a080).lineBetween(x+10,y+2,x+19,y-9+swing);g.fillStyle(0xb9c5b2).fillRoundedRect(x+14,y-15+swing,13,6,2);g.fillStyle(0xe8d5ae).fillCircle(x+10,y,3);g.fillStyle(0x16271f,.82).fillRoundedRect(x-13,y-43,26,12,3);g.lineStyle(1,p.color,.8).strokeRoundedRect(x-13,y-43,26,12,3);this.labelWorker(x,y-37,index);
  }
+ labelWorker(x:number,y:number,index:number){let t=this.workerLabels[index];if(!t){t=this.add.text(x,y,`P${index+1}`,{fontFamily:'Arial',fontSize:9,color:'#fff3d2',stroke:'#182921',strokeThickness:2}).setOrigin(.5);this.workerLabels[index]=t;}t.setPosition(x,y).setVisible(true);}
 }
 

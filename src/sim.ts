@@ -1,4 +1,4 @@
-import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,REPAIR_COST,REPAIR_SPEED,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
+import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
 import {cell,center,distance,flow,random,WorldMap,type Point} from './map';
 export interface Gear{id:number;kind:ActiveKind;ready:number;until:number}
 export interface Building extends Point{id:number;kind:TowerKind;level:number;hp:number;maxHp:number;progress:number;armor:number;attack:number;range:number;interval:number;skillInterval:number;shot:number;skill:number;aim:number;wind:number;skillAim:number;skillWind:number;shield:number;shieldUntil:number;shieldSource:number;damage:number}
@@ -10,17 +10,27 @@ export interface Drop extends Point{id:number;kind:RewardKind;gear?:Gear}
 export interface Visual extends Point{kind:string;color:number;size:number;age:number;life:number;text?:string;tx?:number;ty?:number}
 export interface Batch{time:number;wave:number;kinds:EnemyKind[];point?:Point;done:boolean;retry:number}
 type Task={type:'build'|'repair';id:number}|null;
+export interface Worker extends Point{id:number;hp:number;maxHp:number;level:number;xp:number;gold:number;hurtUntil:number;input:Point;task:Task;selected:TowerKind;color:number}
 export class Simulation{
  map=new WorldMap(); rand=random(7819); time=-10;state:'menu'|'playing'|'won'|'lost'='menu'; paused=false; wave=0;
- player={x:32.5,y:32.5,hp:100,level:1,xp:0,gold:120,hurtUntil:0}; selected:TowerKind='arrow';task:Task=null;
+ players:Worker[];player:Worker;focusPlayer=0;playerCount:1|2|3;waveInterval:number;
  buildings:Building[]=[];enemies:Enemy[]=[];projectiles:Projectile[]=[];zones:Zone[]=[];drops:Drop[]=[];visuals:Visual[]=[];
  gear:(Gear|null)[]=[null,null];buffs:Partial<Record<BuffKind,number>>={};shared:Partial<Record<ActiveKind,number>>={};
  batches:Batch[]=[];rewardPool:RewardKind[]=[...Object.keys(ACTIVES),...Object.keys(BUFFS)] as RewardKind[];pendingDrops:{kind:RewardKind;point:Point}[]=[];
- messages:{text:string;until:number;type:string}[]=[];swap:number|null=null;serial=1;input={x:0,y:0};
+ messages:{text:string;until:number;type:string}[]=[];swap:number|null=null;serial=1;
  stats={kills:0,built:0,lost:0,repaired:0,income:0,spent:0,actives:0,damage:{arrow:0,wall:0,mortar:0,frost:0,taunt:0} as Record<TowerKind,number>};
- blocked=new Set<number>();towerCells=new Map<number,Building>();fields=new Map<number,Float32Array>();fieldAt=-100;fieldCell=-1;dirty=true;
+ blocked=new Set<number>();towerCells=new Map<number,Building>();fields=new Map<number,Float32Array>();fieldAt=-100;fieldCell='';dirty=true;
  buckets=new Map<number,Enemy[]>();god=false;practice=false;soundEvents:string[]=[];
- constructor(){this.addBuilding('arrow',33.5,32.5,true);this.makeBatches();}
+ constructor(count:1|2|3=1){this.playerCount=count;this.waveInterval=PARTY_RULES[count].interval;const starts=[[32.5,32.5],[31.5,33.5],[32.5,34.5]],colors=[0xf0c563,0x75c8d0,0xd29be8];this.players=starts.slice(0,count).map(([x,y],i)=>({id:i?-(i+1):0,x,y,hp:100,maxHp:100,level:1,xp:0,gold:120,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[i]}));this.player=this.players[0];this.addBuilding('arrow',33.5,32.5,true);this.makeBatches();}
+ get selected(){return this.player.selected;}set selected(v:TowerKind){this.player.selected=v;}
+ get task(){return this.player.task;}set task(v:Task){this.player.task=v;}
+ get input(){return this.player.input;}set input(v:Point){this.player.input=v;}
+ get focused(){return this.players[this.focusPlayer]??this.player;}
+ alivePlayers(){return this.players.filter(p=>p.hp>0||this.god);}
+ playerForTarget(id:number){return id===0?this.players[0]:id<=-2?this.players[-id-1]:undefined;}
+ isPlayerTarget(id:number){return !!this.playerForTarget(id);}
+ nearestPlayer(p:Point,attackable=false){return this.alivePlayers().filter(w=>!attackable||!this.invincible).sort((a,b)=>distance(a,p)-distance(b,p))[0];}
+ nearPlayer(p:Point,r:number){return this.alivePlayers().some(w=>distance(w,p)<=r);}
  get speed(){return 3.2*(1+.02*(this.player.level-1))*(this.active('boots')?1.6:1);}
  get buildRate(){return (1+.05*(this.player.level-1))*(this.active('build')?2:1);}
  get repairRate(){return REPAIR_SPEED*(1+.05*(this.player.level-1))*(this.active('repair')?2:1);}
@@ -28,31 +38,32 @@ export class Simulation{
  get invincible(){return this.active('invincible');}
  active(kind:ActiveKind){return this.gear.some(g=>g?.kind===kind&&g.until>this.time);}
  b(kind:BuffKind){return this.buffs[kind]||0;}
- atPlayer(){return this.buildings.find(t=>cell(t)===cell(this.player));}
+ atPlayer(worker:Worker|number=this.focused){const p=typeof worker==='number'?this.players[worker]:worker;return p&&this.buildings.find(t=>cell(t)===cell(p));}
  message(text:string,type='info'){this.messages.push({text,type,until:this.time+3.5});if(this.messages.length>4)this.messages.shift();}
  fx(kind:string,p:Point,color=0xeec274,size=1,life=.5,text?:string){this.visuals.push({...p,kind,color,size,life,age:0,text});}
  start(){this.state='playing';this.message('敌军将在10秒后抵达。先在脚下建一座箭塔。');}
  addBuilding(kind:TowerKind,x:number,y:number,complete=false){const d=TOWERS[kind];const t:Building={id:this.serial++,kind,x,y,level:1,hp:d.hp*(complete?1:.3),maxHp:d.hp*(complete?1:.3),progress:complete?1:0,armor:complete?d.armor:0,attack:d.attack,range:d.range,interval:d.interval,skillInterval:d.skill,shot:1,skill:0,aim:0,wind:0,skillAim:0,skillWind:0,shield:0,shieldUntil:0,shieldSource:0,damage:0};this.buildings.push(t);this.reindex();return t;}
  reindex(){this.blocked=new Set(this.buildings.filter(t=>t.hp>0).map(cell));this.towerCells=new Map(this.buildings.filter(t=>t.hp>0).map(t=>[cell(t),t]));this.dirty=true;}
- command(action:'build'|'repair'|'upgrade'|'pickup'|'cancel'|'active0'|'active1'){
+ command(action:'build'|'repair'|'upgrade'|'pickup'|'cancel'|'active0'|'active1',playerIndex=this.focusPlayer){
   if(this.state!=='playing'||this.paused)return;
-  if(action==='cancel'){this.task=null;this.swap=null;return;}
-  if(action==='active0'||action==='active1'){this.use(action==='active0'?0:1);return;}
-  if(action==='pickup'){this.pickup();return;}
-  const t=this.atPlayer();
+  const p=this.players[playerIndex];if(!p||p.hp<=0)return;this.focusPlayer=playerIndex;
+  if(action==='cancel'){p.task=null;this.swap=null;return;}
+  if(action==='active0'||action==='active1'){this.use(action==='active0'?0:1,playerIndex);return;}
+  if(action==='pickup'){this.pickup(playerIndex);return;}
+  const t=this.atPlayer(p);
   if(action==='build'){
-   if(t){if(t.progress<1){this.task={type:'build',id:t.id};this.message('继续施工，已保留之前的进度');}else this.message('这里已有建筑：R修复 / F升级');return;}
-   const p=center(cell(this.player)),d=TOWERS[this.selected];
-   if(this.map.terrain(p.x,p.y)){this.message('石头、河流和泥泞地上无法施工','bad');return;}
+   if(t){if(t.progress<1){p.task={type:'build',id:t.id};this.message(`P${playerIndex+1}继续施工，已保留之前的进度`);}else this.message('这里已有建筑：修复或升级');return;}
+   const point=center(cell(p)),d=TOWERS[p.selected];
+   if(this.map.terrain(point.x,point.y)){this.message('石头、河流和泥泞地上无法施工','bad');return;}
    if(this.player.level<d.unlock){this.message(`达到${d.unlock}级解锁${d.name}`,'bad');return;}
    if(this.buildings.length>=this.cap){this.message('建筑名额已满，包含未完成工地','bad');return;}
    if(this.player.gold<d.cost){this.message('建造点不足','bad');return;}
-   if(this.enemies.some(e=>e.hp>0&&!ENEMIES[e.kind].air&&this.circleHitsBuilding(e,ENEMIES[e.kind].r,p))){this.message('敌人占据了这块地面','bad');return;}
-   this.spend(d.cost);const newT=this.addBuilding(this.selected,p.x,p.y);this.task={type:'build',id:newT.id};this.soundEvents.push('build');
+   if(this.enemies.some(e=>e.hp>0&&!ENEMIES[e.kind].air&&this.circleHitsBuilding(e,ENEMIES[e.kind].r,point))){this.message('敌人占据了这块地面','bad');return;}
+   this.spend(d.cost);const newT=this.addBuilding(p.selected,point.x,point.y);p.task={type:'build',id:newT.id};this.soundEvents.push('build');
   }
   if(action==='repair'){
    if(!t||t.progress<1){this.message('站到已完成建筑上才能修复','bad');return;}
-   if(t.hp>=t.maxHp-.01){this.message('建筑生命已满');return;}this.task={type:'repair',id:t.id};
+   if(t.hp>=t.maxHp-.01){this.message('建筑生命已满');return;}p.task={type:'repair',id:t.id};
   }
   if(action==='upgrade'){
    if(!t||t.progress<1){this.message('站到已完成建筑上才能升级','bad');return;}
@@ -63,14 +74,14 @@ export class Simulation{
   }
  }
  spend(n:number){this.player.gold=Math.max(0,this.player.gold-n);this.stats.spent+=n;}
- attributes(t:Building){if(t.progress<1)return;const d=TOWERS[t.kind],near=distance(this.player,t)<=5;
+ attributes(t:Building){if(t.progress<1)return;const d=TOWERS[t.kind],near=this.nearPlayer(t,5);
   const hp=d.hp*HP_SCALE[t.level-1]*(1+(near?.25*this.b('life'):0));t.hp=t.hp/t.maxHp*hp;t.maxHp=hp;
   t.armor=d.armor+5*(t.level-1)+(near?15*this.b('armor'):0);t.attack=d.attack*DMG_SCALE[t.level-1]*(1+(near?.25*this.b('power'):0));
   t.range=d.range+(near&&d.attack?this.b('range'):0);t.interval=d.interval/(1+(near?.2*this.b('haste')+(this.active('overload')?.6:0):0));t.skillInterval=d.skill*(1-(near?Math.min(.5,.15*this.b('resonance')):0));
  }
- use(slot:number){const g=this.gear[slot];if(!g){this.message('击败BOSS，拾取主动装备');return;}
+ use(slot:number,playerIndex=this.focusPlayer){const p=this.players[playerIndex]??this.player,g=this.gear[slot];if(!g){this.message('击败BOSS，拾取主动装备');return;}
   const d=ACTIVES[g.kind];if(Math.max(g.ready,this.shared[g.kind]||-100)>this.time){this.message('装备尚在冷却');return;}
-  const here=this.atPlayer(),near=this.buildings.filter(t=>distance(t,this.player)<=4);
+  const here=this.atPlayer(p),near=this.buildings.filter(t=>distance(t,p)<=4);
   if(g.kind==='shield'&&!near.length){this.message('4格内没有可保护的建筑','bad');return;}
   if(g.kind==='alarm'&&(!here||here.progress<1||!this.enemies.some(e=>distance(e,here)<=4&&e.tauntImmune<=this.time))){this.message('站在完工建筑上，且4格内需要有敌人','bad');return;}
   if(g.kind==='instant'){
@@ -82,18 +93,18 @@ export class Simulation{
   g.ready=this.time+d.cd;g.until=this.time+d.duration;this.shared[g.kind]=g.ready;this.stats.actives++;this.soundEvents.push('active');
   if(g.kind==='shield')for(const t of near){t.shield=Math.max(t.shield,t.maxHp*.3);t.shieldUntil=g.until;t.shieldSource=g.id;}
   if(g.kind==='alarm'&&here)this.taunt(here,4,3,g.id);
-  if(g.kind==='foam')this.zones.push({id:this.serial++,kind:'foam',...this.player,radius:3,start:this.time,until:g.until,next:0,source:g.id,owner:0,dx:0,dy:0,travel:0,fired:true});
-  if(g.kind==='invincible'){for(const e of this.enemies){if(e.target===0){e.wind=0;e.target=-1;}e.decision=0;}for(const z of this.zones)if(z.kind!=='foam'&&!z.fired)z.until=this.time;}
-  this.fx('ring',this.player,0xf1d389,2,.6);this.message(d.name+' · 已启动');
+  if(g.kind==='foam')this.zones.push({...p,id:this.serial++,kind:'foam',radius:3,start:this.time,until:g.until,next:0,source:g.id,owner:p.id,dx:0,dy:0,travel:0,fired:true});
+  if(g.kind==='invincible'){for(const e of this.enemies){if(this.isPlayerTarget(e.target)){e.wind=0;e.target=-1;}e.decision=0;}for(const z of this.zones)if(z.kind!=='foam'&&!z.fired)z.until=this.time;}
+  this.fx('ring',p,0xf1d389,2,.6);this.message(`P${playerIndex+1} ${d.name} · 已启动`);
  }
  removeGear(g:Gear){g.until=-100;this.zones=this.zones.filter(z=>z.source!==g.id);for(const t of this.buildings)if(t.shieldSource===g.id)t.shield=0;for(const e of this.enemies)if(e.tauntSource===g.id){e.tauntUntil=this.time;e.decision=0;}}
- pickup(){const drop=this.drops.find(d=>cell(d)===cell(this.player));if(!drop){this.message('站到地面道具所在格，按G拾取');return;}
+ pickup(playerIndex=this.focusPlayer){const p=this.players[playerIndex]??this.player,drop=this.drops.find(d=>cell(d)===cell(p));if(!drop){this.message('站到地面道具所在格拾取');return;}
   if(!isActive(drop.kind)){const k=drop.kind as BuffKind;this.buffs[k]=(this.buffs[k]||0)+1;this.drops=this.drops.filter(d=>d.id!==drop.id);this.message(`获得 ${BUFFS[k].name} · 持续整局`);this.soundEvents.push('reward');return;}
-  const slot=this.gear.findIndex(g=>!g);if(slot<0){this.swap=drop.id;return;}this.exchange(slot,drop.id);
+  const slot=this.gear.findIndex(g=>!g);if(slot<0){this.swap=drop.id;this.focusPlayer=playerIndex;return;}this.exchange(slot,drop.id,playerIndex);
  }
- exchange(slot:number,id=this.swap){if(this.paused||this.state!=='playing'||id===null)return;const d=this.drops.find(d=>d.id===id);if(!d||!isActive(d.kind)||cell(d)!==cell(this.player)){this.swap=null;return;}
+ exchange(slot:number,id=this.swap,playerIndex=this.focusPlayer){if(this.paused||this.state!=='playing'||id===null)return;const p=this.players[playerIndex]??this.player,d=this.drops.find(d=>d.id===id);if(!d||!isActive(d.kind)||cell(d)!==cell(p)){this.swap=null;return;}
   const old=this.gear[slot];this.drops=this.drops.filter(v=>v.id!==d.id);this.gear[slot]=d.gear||{id:this.serial++,kind:d.kind,ready:-100,until:-100};
-  if(old){this.removeGear(old);this.drops.push({id:this.serial++,kind:old.kind,gear:old,...center(cell(this.player))});}
+  if(old){this.removeGear(old);this.drops.push({id:this.serial++,kind:old.kind,gear:old,...center(cell(p))});}
   this.swap=null;this.message(`携带 ${ACTIVES[d.kind].name}`);this.soundEvents.push('reward');
  }
  drop(kind:RewardKind,p:Point){const taken=new Set(this.drops.map(cell));let best:Point|undefined;
@@ -101,34 +112,36 @@ export class Simulation{
   if(!best){this.pendingDrops.push({kind,point:p});return;}
   this.drops.push({id:this.serial++,kind,...best,gear:isActive(kind)?{id:this.serial++,kind,ready:-100,until:-100}:undefined});this.fx('ring',best,0xefca7d,2,1);
  }
- makeBatches(){WAVES.forEach((row,i)=>{const count=i<5?2:3,gap=i<5?6:5;for(let batch=0;batch<count;batch++){const kinds:EnemyKind[]=[];row.forEach((n,k)=>{const qty=Math.floor(n/count)+(batch>=count-n%count?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if((i+1)%5===0&&batch===count-1)kinds.push(('boss'+((i+1)/5)) as EnemyKind);this.batches.push({time:i*45+batch*gap,wave:i+1,kinds,done:false,retry:-100});}});}
- spawnPoint(wave:number,batch:number){for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=15+this.rand()*5;const p=center(cell({x:Math.max(2,Math.min(61,this.player.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(61,this.player.y+Math.sin(angle)*radius))}));if(distance(p,this.player)>=12&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
- spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r,!!d.air);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
+ partyCenter(){const list=this.alivePlayers();return{x:list.reduce((n,p)=>n+p.x,0)/Math.max(1,list.length),y:list.reduce((n,p)=>n+p.y,0)/Math.max(1,list.length)};}
+ makeBatches(){this.batches=[];const scale=PARTY_RULES[this.playerCount].count;WAVES.forEach((row,i)=>{const count=i<5?2:3,gap=i<5?6:5,scaled=row.map(n=>n?Math.max(1,Math.round(n*scale)):0);for(let batch=0;batch<count;batch++){const kinds:EnemyKind[]=[];scaled.forEach((n,k)=>{const qty=Math.floor(n/count)+(batch>=count-n%count?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if((i+1)%5===0&&batch===count-1)kinds.push(('boss'+((i+1)/5)) as EnemyKind);this.batches.push({time:i*this.waveInterval+batch*gap,wave:i+1,kinds,done:false,retry:-100});}});}
+ spawnPoint(wave:number,batch:number){const origin=this.partyCenter();for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=15+this.rand()*5;const p=center(cell({x:Math.max(2,Math.min(61,origin.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(61,origin.y+Math.sin(angle)*radius))}));if(this.alivePlayers().every(w=>distance(p,w)>=12)&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
+ spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r,!!d.air),initial=this.nearestPlayer(point,true);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:initial?.id??-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
  tick(dt:number){if(this.state!=='playing'||this.paused)return;
   this.time+=dt;this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
-  this.updatePlayer(dt);for(const t of this.buildings)this.attributes(t);
-  const wave=Math.min(20,Math.max(0,Math.floor(this.time/45)+1));if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · 防守你的阵地`,'wave');this.soundEvents.push('wave');}
+  this.updatePlayers(dt);for(const t of this.buildings)this.attributes(t);
+  const wave=Math.min(20,Math.max(0,Math.floor(this.time/this.waveInterval)+1));if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
   for(let i=0;i<this.batches.length;i++){const b=this.batches[i];if(b.done||this.time<b.time-2||this.time<b.retry)continue;
    if(!b.point)b.point=this.spawnPoint(b.wave,i);if(this.time<b.time)continue;
-   if(!b.point||distance(b.point,this.player)<8||!this.map.canStand(b.point.x,b.point.y,.65,this.blocked)){b.point=this.spawnPoint(b.wave,i);b.retry=this.time+2;continue;}
-   for(const kind of b.kinds){let p=b.point;const d=ENEMIES[kind];for(let tries=0;tries<10;tries++){const pp={x:b.point.x+(this.rand()-.5)*2,y:b.point.y+(this.rand()-.5)*2};if((d.air?this.map.canFly(pp.x,pp.y,d.r):this.map.canStand(pp.x,pp.y,d.r,this.blocked))&&distance(pp,this.player)>=8){p=pp;break;}}this.spawn(kind,p,b.wave);}b.done=true;
+   if(!b.point||this.alivePlayers().some(w=>distance(b.point!,w)<8)||!this.map.canStand(b.point.x,b.point.y,.65,this.blocked)){b.point=this.spawnPoint(b.wave,i);b.retry=this.time+2;continue;}
+   for(const kind of b.kinds){let p=b.point;const d=ENEMIES[kind];for(let tries=0;tries<10;tries++){const pp={x:b.point.x+(this.rand()-.5)*2,y:b.point.y+(this.rand()-.5)*2};if((d.air?this.map.canFly(pp.x,pp.y,d.r):this.map.canStand(pp.x,pp.y,d.r,this.blocked))&&this.alivePlayers().every(w=>distance(pp,w)>=8)){p=pp;break;}}this.spawn(kind,p,b.wave);}b.done=true;
   }
   if(this.pendingDrops.length){const pending=this.pendingDrops.splice(0);for(const d of pending)this.drop(d.kind,d.point);}
   this.rebuildBuckets();this.updateFields();this.updateTowers(dt);this.updateEnemies(dt);this.updateZones(dt);this.resolveEnemyCollisions();this.updateProjectiles(dt);this.cleanDead();
-  if(this.player.hp<=0&&!this.god){this.state='lost';this.task=null;this.soundEvents.push('lost');return;}
-  this.updateTask(dt);
-  if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===20){this.state='won';this.task=null;this.soundEvents.push('won');}
+  if(this.alivePlayers().length===0&&!this.god){this.state='lost';for(const p of this.players)p.task=null;this.soundEvents.push('lost');return;}
+  this.updateTasks(dt);
+  if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===20){this.state='won';for(const p of this.players)p.task=null;this.soundEvents.push('won');}
  }
- updatePlayer(dt:number){let {x,y}=this.input;const len=Math.hypot(x,y);if(!len)return;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:this.player.x,y:this.player.y},terrainSpeed=this.map.moveFactor(this.player.x,this.player.y);this.move(this.player,x*this.speed*terrainSpeed*dt,y*this.speed*terrainSpeed*dt,.25,false);
-  if(distance(before,this.player)>.0001){this.task=null;if(this.swap!==null&&this.drops.find(d=>d.id===this.swap)&&cell(this.drops.find(d=>d.id===this.swap)!)!==cell(this.player))this.swap=null;}
+ updatePlayers(dt:number){for(const p of this.players){if(p.hp<=0)continue;let {x,y}=p.input;const len=Math.hypot(x,y);if(!len)continue;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:p.x,y:p.y},terrainSpeed=this.map.moveFactor(p.x,p.y);this.move(p,x*this.speed*terrainSpeed*dt,y*this.speed*terrainSpeed*dt,.25,false);
+   if(distance(before,p)>.0001){p.task=null;if(this.swap!==null&&this.focused===p&&this.drops.find(d=>d.id===this.swap)&&cell(this.drops.find(d=>d.id===this.swap)!)!==cell(p))this.swap=null;}}
  }
  move(p:Point,dx:number,dy:number,r:number,enemy:boolean){const e=enemy?p as Enemy:undefined,air=!!e&&!!ENEMIES[e.kind].air,oldBucket=e?this.bucketKey(e):0,steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/.18));for(let i=0;i<steps;i++){
   const nx=p.x+dx/steps;if((air?this.map.canFly(nx,p.y,r):this.map.canStand(nx,p.y,r))&&(!e||air||!this.buildingAtPosition({x:nx,y:p.y},r))){p.x=nx;}
   const ny=p.y+dy/steps;if((air?this.map.canFly(p.x,ny,r):this.map.canStand(p.x,ny,r))&&(!e||air||!this.buildingAtPosition({x:p.x,y:ny},r))){p.y=ny;}
  }if(e)this.relocateBucket(e,oldBucket);}
- updateTask(dt:number){if(!this.task)return;const t=this.buildings.find(t=>t.id===this.task!.id);if(!t||cell(t)!==cell(this.player)){this.task=null;return;}
-  const d=TOWERS[t.kind];if(this.task.type==='build'){t.progress=Math.min(1,t.progress+dt*this.buildRate/d.work);if(t.progress>=1){const ratio=t.hp/t.maxHp;t.maxHp=d.hp;t.hp=ratio*d.hp;this.attributes(t);this.task=null;this.stats.built++;this.fx('ring',t,d.color,1.5,.6);this.message(d.name+' 建造完成');this.soundEvents.push('complete');}}
-  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRate/d.work*dt);if(heal<.0001){this.task=null;return;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(this.player.gold+1e-8<fee){this.task=null;this.message('建造点不足，修复暂停','bad');return;}this.spend(fee);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)this.task=null;}
+ updateTasks(dt:number){for(const p of this.players){if(!p.task||p.hp<=0)continue;const task=p.task,t=this.buildings.find(t=>t.id===task.id);if(!t||cell(t)!==cell(p)){p.task=null;continue;}
+  const d=TOWERS[t.kind];if(task.type==='build'){t.progress=Math.min(1,t.progress+dt*this.buildRate/d.work);if(t.progress>=1){const ratio=t.hp/t.maxHp;t.maxHp=d.hp;t.hp=ratio*d.hp;this.attributes(t);for(const w of this.players)if(w.task?.id===t.id)w.task=null;this.stats.built++;this.fx('ring',t,d.color,1.5,.6);this.message(d.name+' 建造完成');this.soundEvents.push('complete');}}
+  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRate/d.work*dt);if(heal<.0001){p.task=null;continue;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(this.player.gold+1e-8<fee){p.task=null;this.message('建造点不足，修复暂停','bad');continue;}this.spend(fee);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)for(const w of this.players)if(w.task?.id===t.id)w.task=null;}
+  }
  }
  bucketKey(p:Point){return Math.floor(p.x/3)+Math.floor(p.y/3)*24;}
  addBucket(e:Enemy){const id=this.bucketKey(e),arr=this.buckets.get(id)||[];if(!arr.includes(e))arr.push(e);this.buckets.set(id,arr);}
@@ -148,40 +161,40 @@ export class Simulation{
     const remaining=minimum-distance(e,other);if(remaining>1e-4){const firstMoved=distance(a,e),secondMoved=distance(b,other);if(firstMoved>=secondMoved)this.move(e,-nx*remaining,-ny*remaining,ENEMIES[e.kind].r,true);else this.move(other,nx*remaining,ny*remaining,ENEMIES[other.kind].r,true);}
    }}if(!overlaps)break;}this.rebuildBuckets();for(const e of this.enemies){const d=ENEMIES[e.kind],air=!!d.air;if(e.hp<=0||!this.enemyAtPosition(e,d.r,e.id,air))continue;const old=this.bucketKey(e),p=this.enemySpawnPoint(e,d.r,air,e.id);e.x=p.x;e.y=p.y;this.relocateBucket(e,old);}}
  nearby(p:Point,r:number){const list:Enemy[]=[];for(let y=Math.floor((p.y-r)/3);y<=Math.floor((p.y+r)/3);y++)for(let x=Math.floor((p.x-r)/3);x<=Math.floor((p.x+r)/3);x++)for(const e of this.buckets.get(x+y*24)||[])if(e.hp>0&&distance(e,p)<=r)list.push(e);return list;}
- updateFields(){if(!this.dirty&&this.fieldCell===cell(this.player)&&this.time<this.fieldAt+.5)return;this.fieldCell=cell(this.player);this.fieldAt=this.time;this.dirty=false;this.fields.clear();this.fields.set(0,flow(this.map,this.player,this.blocked));
-  const costs=new Map(this.buildings.map(t=>[cell(t),Math.min(100,2+t.hp/15)]));this.fields.set(-1,flow(this.map,this.player,this.blocked,costs));
+ updateFields(){const cells=this.alivePlayers().map(p=>cell(p)).join(',');if(!this.dirty&&this.fieldCell===cells&&this.time<this.fieldAt+.5)return;this.fieldCell=cells;this.fieldAt=this.time;this.dirty=false;this.fields.clear();for(const p of this.alivePlayers())this.fields.set(p.id,flow(this.map,p,this.blocked));
  }
- target(id:number):Point|undefined{return id===0?this.player:this.buildings.find(t=>t.id===id&&t.hp>0);}
- edgeDistance(e:Enemy,p:Point,id:number){if(id===0)return Math.max(0,distance(e,p)-ENEMIES[e.kind].r-.25);const dx=Math.max(0,Math.abs(e.x-p.x)-.5),dy=Math.max(0,Math.abs(e.y-p.y)-.5);return Math.max(0,Math.hypot(dx,dy)-ENEMIES[e.kind].r);}
- canHit(e:Enemy,p:Point,id:number){const d=ENEMIES[e.kind];return (id!==0||!this.invincible)&&this.edgeDistance(e,p,id)<=d.range&&(d.air||this.map.los(e,p));}
+ target(id:number):Point|undefined{return this.playerForTarget(id)??this.buildings.find(t=>t.id===id&&t.hp>0);}
+ edgeDistance(e:Enemy,p:Point,id:number){if(this.isPlayerTarget(id))return Math.max(0,distance(e,p)-ENEMIES[e.kind].r-.25);const dx=Math.max(0,Math.abs(e.x-p.x)-.5),dy=Math.max(0,Math.abs(e.y-p.y)-.5);return Math.max(0,Math.hypot(dx,dy)-ENEMIES[e.kind].r);}
+ canHit(e:Enemy,p:Point,id:number){const d=ENEMIES[e.kind];return (!this.isPlayerTarget(id)||(!this.invincible&&(p as Worker).hp>0))&&this.edgeDistance(e,p,id)<=d.range&&(d.air||this.map.los(e,p));}
   updateEnemies(dt:number){for(const e of this.enemies){if(e.hp<=0)continue;const d=ENEMIES[e.kind];
    if(e.slows){e.slows=e.slows.filter(v=>v.until>this.time);const strongest=e.slows.reduce<{factor:number;until:number}|null>((a,b)=>!a||b.factor<a.factor?b:a,null);e.slow=strongest?.factor??1;e.slowUntil=strongest?.until??0;}
    if(e.tauntUntil>0&&e.tauntUntil<=this.time){e.tauntUntil=0;e.taunt=0;e.tauntImmune=this.time+2;e.decision=0;}
    // Re-evaluate priority before attack windups, stuns and skill execution.
    const previous=e.target,taunt=this.buildings.find(t=>t.id===e.taunt&&t.hp>0);
    if(e.tauntUntil>this.time&&taunt)e.target=taunt.id;
-   else if(this.canHit(e,this.player,0))e.target=0;
-   else {const current=this.buildings.find(t=>t.id===previous&&t.hp>0&&this.canHit(e,t,t.id));
-    const nearest=current??this.buildings.filter(t=>t.hp>0&&this.canHit(e,t,t.id)).sort((a,b)=>distance(a,e)-distance(b,e))[0];
-    e.target=nearest?.id??(this.invincible?-1:0);
-   }
-   if(previous!==e.target&&e.wind>0){e.wind=0;if(e.target>=0){const nextTarget=this.target(e.target);if(nextTarget&&this.canHit(e,nextTarget,e.target)){e.wind=this.time+d.wind;e.next=Math.max(e.next,this.time+d.interval);}}}
+    else {const hitPlayer=this.alivePlayers().filter(p=>this.canHit(e,p,p.id)).sort((a,b)=>distance(a,e)-distance(b,e))[0];if(hitPlayer)e.target=hitPlayer.id;
+    else {
+     const current=this.buildings.find(t=>t.id===previous&&t.hp>0&&this.canHit(e,t,t.id));
+     const nearest=current??this.buildings.filter(t=>t.hp>0&&this.canHit(e,t,t.id)).sort((a,b)=>distance(a,e)-distance(b,e))[0];
+     e.target=nearest?.id??(this.invincible?-1:(this.nearestPlayer(e,true)?.id??-1));
+    }}
+   if(previous!==e.target&&e.wind>0){e.wind=0;if(e.target!==-1){const nextTarget=this.target(e.target);if(nextTarget&&this.canHit(e,nextTarget,e.target)){e.wind=this.time+d.wind;e.next=Math.max(e.next,this.time+d.interval);}}}
    if(e.stunUntil>this.time)continue;
    const casting=this.zones.some(z=>z.owner===e.id&&z.until>this.time&&(!z.fired||z.kind==='charge'));if(casting)continue;
    if(d.boss&&this.time>=e.skillAt&&!this.invincible){if(this.bossSkill(e))continue;}
    if(e.wind>0){if(this.time>=e.wind){const target=this.target(e.target);if(target&&this.canHit(e,target,e.target)){if(e.kind==='archer'||e.kind==='boss2')this.enemyArrow(e,target);else this.damageTarget(e.target,e.attack);}e.wind=0;}continue;}
-   if(e.target<0)continue;const target=this.target(e.target);if(!target){e.decision=0;continue;}
+   if(e.target===-1)continue;const target=this.target(e.target);if(!target){e.decision=0;continue;}
    if(this.canHit(e,target,e.target)){if(this.time>=e.next){e.wind=this.time+d.wind;e.next=this.time+d.interval;}continue;}
    let dest:Point=target;
    if(!d.air){
-    const fieldKey=e.target+(d.r>.5?100000:0);let field=this.fields.get(fieldKey);if(!field){field=flow(this.map,target,this.blocked,e.target===0?undefined:new Map(this.buildings.map(t=>[cell(t),2+t.hp/15])),d.r);this.fields.set(fieldKey,field);}
+     const playerTarget=this.isPlayerTarget(e.target),fieldKey=e.target+(d.r>.5?100000:0);let field=this.fields.get(fieldKey);if(!field){field=flow(this.map,target,this.blocked,playerTarget?undefined:new Map(this.buildings.map(t=>[cell(t),2+t.hp/15])),d.r);this.fields.set(fieldKey,field);}
     const ci=cell(e),cp=center(ci);let best=ci,value=field[ci],recovered=false;
-    if(!Number.isFinite(value)&&e.target===0){const breakKey=d.r>.5?-100001:-1;let breakField=this.fields.get(breakKey);if(!breakField){const costs=new Map(this.buildings.map(t=>[cell(t),2+t.hp/15]));breakField=flow(this.map,this.player,this.blocked,costs,d.r);this.fields.set(breakKey,breakField);}field=breakField;value=field[ci];}
+     if(!Number.isFinite(value)&&playerTarget){const breakKey=-200000+e.target-(d.r>.5?100000:0);let breakField=this.fields.get(breakKey);if(!breakField){const costs=new Map(this.buildings.map(t=>[cell(t),2+t.hp/15]));breakField=flow(this.map,target,this.blocked,costs,d.r);this.fields.set(breakKey,breakField);}field=breakField;value=field[ci];}
     if(!Number.isFinite(value)){let nearest=Infinity,cx=ci%SIZE,cy=Math.floor(ci/SIZE);for(let oy=-4;oy<=4;oy++)for(let ox=-4;ox<=4;ox++){const x=cx+ox,y=cy+oy;if(x<0||y<0||x>=SIZE||y>=SIZE)continue;const id=y*SIZE+x;if(!Number.isFinite(field[id]))continue;const p=center(id),gap=distance(e,p);if(gap<nearest){nearest=gap;best=id;value=field[id];recovered=true;}}}
     if(!recovered)for(const id of [ci+1,ci-1,ci+SIZE,ci-SIZE])if(id>=0&&id<SIZE*SIZE&&(this.map.elevation[id]===this.map.elevation[ci]||this.map.ramps[id]||this.map.ramps[ci])&&field[id]<value){best=id;value=field[id];}
     dest=best===ci?target:center(best);const obstacle=this.towerCells.get(best);
     if(obstacle&&obstacle.id!==e.target){if(this.canHit(e,obstacle,obstacle.id)){e.target=obstacle.id;if(this.time>=e.next){e.wind=this.time+d.wind;e.next=this.time+d.interval;}continue;}}
-    if(best===ci&&distance(e,cp)>.3&&e.target!==0)dest=cp;
+     if(best===ci&&distance(e,cp)>.3&&!playerTarget)dest=cp;
    }
    let dx=dest.x-e.x,dy=dest.y-e.y,n=Math.hypot(dx,dy);if(n>.001){dx/=n;dy/=n;const slow=e.slowUntil>this.time?e.slow:1;let foam=1;for(const z of this.zones)if(z.kind==='foam'&&z.until>this.time&&distance(e,z)<=z.radius)foam=Math.min(foam,d.boss?.75:.5);
     const speed=d.speed*(e.kind==='boss4'&&e.hp/e.maxHp<.4?1.15:1)*Math.max(.4,Math.min(slow,foam))*(d.air?1:this.map.moveFactor(e.x,e.y));
@@ -191,13 +204,13 @@ export class Simulation{
     const old={x:e.x,y:e.y};this.move(e,(dx*speed+sx)*dt,(dy*speed+sy)*dt,d.r,true);
     if(distance(old,e)<.00001){this.move(e,-dy*speed*dt,dx*speed*dt,d.r,true);}
    }
-   if(!d.air&&!this.invincible){const gap=distance(e,this.player),min=d.r+.25;if(gap<min&&gap>.0001){const old={x:this.player.x,y:this.player.y};this.move(this.player,(this.player.x-e.x)/gap*(min-gap)*.3,(this.player.y-e.y)/gap*(min-gap)*.3,.25,false);if(distance(old,this.player)>.001)this.task=null;}}
+   if(!d.air&&!this.invincible)for(const p of this.alivePlayers()){const gap=distance(e,p),min=d.r+.25;if(gap<min&&gap>.0001){const old={x:p.x,y:p.y};this.move(p,(p.x-e.x)/gap*(min-gap)*.3,(p.y-e.y)/gap*(min-gap)*.3,.25,false);if(distance(old,p)>.001)p.task=null;}}
   }
  }
  bossSkill(e:Enemy){const k=e.kind==='boss1'?'smash':e.kind==='boss2'?'rain':e.kind==='boss3'?'charge':(['smash','rain','charge'] as const)[e.sequence%3];const range=k==='smash'?8:k==='rain'?10:6;
-  if(distance(e,this.player)>range)return false;if(k==='charge'&&!this.map.los(e,this.player))return false;
+  const target=this.alivePlayers().filter(p=>distance(e,p)<=range&&(k!=='charge'||this.map.los(e,p))).sort((a,b)=>distance(e,a)-distance(e,b))[0];if(!target)return false;
   const wind=k==='smash'?1.2:k==='rain'?1.5:1,cycle=e.kind==='boss4'?(e.hp/e.maxHp<.4?5:6):(k==='smash'?8:k==='rain'?9:10);e.skillAt=this.time+cycle;e.sequence++;e.wind=0;
-  const n=distance(e,this.player)||1;this.zones.push({id:this.serial++,kind:k,x:k==='charge'?e.x:this.player.x,y:k==='charge'?e.y:this.player.y,radius:2,start:this.time+wind,until:this.time+wind+(k==='smash'?.1:k==='rain'?3:.75),next:this.time+wind+1,source:0,owner:e.id,dx:(this.player.x-e.x)/n,dy:(this.player.y-e.y)/n,travel:0,fired:false});this.soundEvents.push('warning');return true;
+  const n=distance(e,target)||1;this.zones.push({id:this.serial++,kind:k,x:k==='charge'?e.x:target.x,y:k==='charge'?e.y:target.y,radius:2,start:this.time+wind,until:this.time+wind+(k==='smash'?.1:k==='rain'?3:.75),next:this.time+wind+1,source:target.id,owner:e.id,dx:(target.x-e.x)/n,dy:(target.y-e.y)/n,travel:0,fired:false});this.soundEvents.push('warning');return true;
  }
  updateZones(dt:number){for(const z of this.zones){if(z.until<=this.time&&!(z.kind==='rain'&&z.next<=z.until&&z.next<=this.time))continue;if(z.kind==='foam')continue;
    const owner=this.enemies.find(e=>e.id===z.owner&&e.hp>0);if(!z.fired&&!owner){z.until=this.time;continue;}
@@ -207,26 +220,27 @@ export class Simulation{
    if(z.kind==='charge'){if(!owner){z.until=this.time;continue;}z.fired=true;const travel=Math.min(8*dt,6-z.travel);const nx=owner.x+z.dx*travel,ny=owner.y+z.dy*travel;
     const hit=this.buildingAtPosition({x:nx,y:ny},ENEMIES[owner.kind].r);
     if(hit){this.damageBuilding(hit,100);z.until=this.time;this.fx('blast',hit,0xe98965,1.5);}
-    else if(!this.invincible&&distance(this.player,{x:nx,y:ny})<ENEMIES[owner.kind].r+.25){this.damagePlayer(25);this.move(this.player,z.dx,z.dy,.25,false);this.task=null;z.until=this.time;}
+    else {const victim=!this.invincible&&this.alivePlayers().find(p=>distance(p,{x:nx,y:ny})<ENEMIES[owner.kind].r+.25);if(victim){this.damagePlayer(25,victim);this.move(victim,z.dx,z.dy,.25,false);victim.task=null;z.until=this.time;}
     else if(!this.map.canStand(nx,ny,ENEMIES[owner.kind].r)){z.until=this.time;}
     else{const before={x:owner.x,y:owner.y};this.move(owner,z.dx*travel,z.dy*travel,ENEMIES[owner.kind].r,true);const moved=distance(before,owner);z.travel+=moved;if(moved<travel*.5||z.travel>=6)z.until=this.time;}
+    }
    }
   }this.zones=this.zones.filter(z=>z.until>this.time);}
- areaDamage(p:Point,r:number,player:number,building:number){if(distance(this.player,p)<=r)this.damagePlayer(player);for(const t of this.buildings)if(distance(t,p)<=r)this.damageBuilding(t,building);}
- damagePlayer(amount:number){if(this.god||this.invincible||this.player.hurtUntil>this.time||this.player.hp<=0)return;this.player.hp-=amount;this.player.hurtUntil=this.time+.3;this.fx('number',this.player,0xff968a,.8,.7,'−'+Math.round(amount));this.soundEvents.push('hurt');}
+ areaDamage(p:Point,r:number,player:number,building:number){for(const w of this.alivePlayers())if(distance(w,p)<=r)this.damagePlayer(player,w);for(const t of this.buildings)if(distance(t,p)<=r)this.damageBuilding(t,building);}
+ damagePlayer(amount:number,worker=this.player){if(this.god||this.invincible||worker.hurtUntil>this.time||worker.hp<=0)return;worker.hp-=amount;worker.hurtUntil=this.time+.3;this.fx('number',worker,0xff968a,.8,.7,'−'+Math.round(amount));this.soundEvents.push('hurt');}
  damageBuilding(t:Building,amount:number){if(t.hp<=0)return;let hit=Math.max(1,amount*100/(100+t.armor));if(t.shieldUntil>this.time&&t.shield>0){const absorbed=Math.min(hit,t.shield);t.shield-=absorbed;hit-=absorbed;}t.hp-=hit;if(hit>0)this.fx('hit',t,0xffb18d,.5,.18);}
- damageTarget(id:number,amount:number){if(id===0)this.damagePlayer(amount);else{const t=this.buildings.find(t=>t.id===id);if(t)this.damageBuilding(t,amount);}}
+ damageTarget(id:number,amount:number){const worker=this.playerForTarget(id);if(worker)this.damagePlayer(amount,worker);else{const t=this.buildings.find(t=>t.id===id);if(t)this.damageBuilding(t,amount);}}
  taunt(t:Building,r:number,duration:number,source=0){for(const e of this.nearby(t,r)){if(e.tauntImmune>this.time||e.tauntUntil>this.time)continue;e.taunt=t.id;e.tauntUntil=this.time+duration*(ENEMIES[e.kind].boss?.5:1);e.tauntSource=source;e.decision=0;e.wind=0;}this.fx('ring',t,0xc5a3f4,r,.8);}
  slow(e:Enemy,value:number,duration:number){const actual=value*(ENEMIES[e.kind].boss?.5:1),factor=1-actual;e.slows??=[];const existing=e.slows.find(v=>v.factor===factor);if(existing)existing.until=Math.max(existing.until,this.time+duration);else e.slows.push({factor,until:this.time+duration});if(e.slowUntil<=this.time||factor<e.slow){e.slow=factor;e.slowUntil=this.time+duration;}}
  stun(e:Enemy,duration:number){if(ENEMIES[e.kind].boss||e.stunUntil>this.time||e.stunImmune>this.time)return;e.stunUntil=this.time+duration;e.stunImmune=e.stunUntil+1;e.wind=0;}
- packet(t:Building,skill=false):Packet{const near=distance(t,this.player)<=5,crit=!skill&&near&&this.rand()<Math.min(1,.15*this.b('crit'));
+ packet(t:Building,skill=false):Packet{const near=this.nearPlayer(t,5),crit=!skill&&near&&this.rand()<Math.min(1,.15*this.b('crit'));
   return {damage:t.attack*(crit?1.75:1),pierce:near?.2*this.b('pierce'):0,hunter:near?.35*this.b('hunter'):0,boss:near?.25*this.b('boss'):0,overflow:near&&!skill&&t.kind!=='mortar'?Math.min(1,.5*this.b('overflow')):0,source:t.id,crit};
  }
  updateTowers(dt:number){for(const t of this.buildings){if(t.hp<=0||t.progress<1)continue;const d=TOWERS[t.kind];t.shot=Math.min(1,t.shot+(t.interval?dt/t.interval:0));t.skill=Math.min(1,t.skill+dt/t.skillInterval);
    if(t.aim){t.wind-=dt/t.interval;if(t.wind<=0){const target=this.enemies.find(e=>e.id===t.aim&&e.hp>0);if(target&&distance(t,target)-.5-ENEMIES[target.kind].r<=t.range&&(t.kind==='mortar'||this.map.los(t,target)))this.towerShot(t,target,false);else t.shot=1;t.aim=0;}}
    if(t.skillAim){t.skillWind-=dt;if(t.skillWind<=0){const target=this.enemies.find(e=>e.id===t.skillAim&&e.hp>0);if(target&&distance(t,target)<=d.range&&(t.kind==='mortar'||this.map.los(t,target)))this.towerShot(t,target,true);else t.skill=1;t.skillAim=0;}}
    if(t.shot>=1&&d.attack&&!t.aim){const candidates=this.nearby(t,t.range+1).filter(e=>distance(t,e)-.5-ENEMIES[e.kind].r<=t.range&&(t.kind==='mortar'||this.map.los(t,e)));
-    if(candidates.length){let target=candidates.sort((a,b)=>(a.target===0?-100:0)+distance(a,t)-((b.target===0?-100:0)+distance(b,t)))[0];if(t.kind==='mortar')target=candidates.reduce((a,b)=>this.nearby(a,1.3).length>=this.nearby(b,1.3).length?a:b);t.aim=target.id;t.wind=.125;t.shot=0;}
+    if(candidates.length){let target=candidates.sort((a,b)=>(this.isPlayerTarget(a.target)?-100:0)+distance(a,t)-((this.isPlayerTarget(b.target)?-100:0)+distance(b,t)))[0];if(t.kind==='mortar')target=candidates.reduce((a,b)=>this.nearby(a,1.3).length>=this.nearby(b,1.3).length?a:b);t.aim=target.id;t.wind=.125;t.shot=0;}
    }
    if(t.skill>=1){const radius=t.kind==='wall'?1.2:t.kind==='frost'?(t.level>=3?3.5:3):t.kind==='taunt'?4:d.range;
     const targets=this.nearby(t,radius).filter(e=>t.kind!=='arrow'||this.map.los(t,e));if(!targets.length)continue;
@@ -244,8 +258,8 @@ export class Simulation{
  updateProjectiles(dt:number){const alive:Projectile[]=[];for(const p of this.projectiles){p.age+=dt;
    if(p.kind==='mortar'){p.x=p.sx+(p.tx-p.sx)*Math.min(1,p.age/p.life);p.y=p.sy+(p.ty-p.sy)*Math.min(1,p.age/p.life);if(p.age>=p.life){for(const e of this.nearby({x:p.tx,y:p.ty},p.radius)){this.hitEnemy(e,p.packet);if(p.stun)this.stun(e,p.stun);}this.fx('blast',{x:p.tx,y:p.ty},0xe3ad75,p.radius,.5);continue;}}
    else if(p.kind==='enemy'){const n=Math.hypot(p.tx-p.sx,p.ty-p.sy)||1;let dead=false;const steps=Math.ceil(p.speed*dt/.15);for(let j=0;j<steps;j++){p.x+=(p.tx-p.sx)/n*p.speed*dt/steps;p.y+=(p.ty-p.sy)/n*p.speed*dt/steps;if(this.map.terrain(p.x,p.y)===1){dead=true;break;}
-     if(!this.invincible&&distance(p,this.player)<.3){this.damagePlayer(p.packet.damage);dead=true;break;}
-     const t=this.buildings.find(t=>t.hp>0&&Math.abs(t.x-p.x)<.5&&Math.abs(t.y-p.y)<.5&&!(p.target===0&&cell(t)===cell(this.player)));if(t){this.damageBuilding(t,p.packet.damage);dead=true;break;}
+     const aimed=this.playerForTarget(p.target),workers=aimed?[aimed,...this.alivePlayers().filter(w=>w!==aimed)]:this.alivePlayers(),victim=!this.invincible&&workers.find(w=>distance(p,w)<.3);if(victim){this.damagePlayer(p.packet.damage,victim);dead=true;break;}
+     const t=this.buildings.find(t=>t.hp>0&&Math.abs(t.x-p.x)<.5&&Math.abs(t.y-p.y)<.5&&!(aimed&&cell(t)===cell(aimed)));if(t){this.damageBuilding(t,p.packet.damage);dead=true;break;}
     }if(dead)continue;
    }else{const e=this.enemies.find(e=>e.id===p.target&&e.hp>0);if(!e)continue;const n=distance(p,e),travel=p.speed*dt;
     const next={x:p.x+(e.x-p.x)/Math.max(n,.001)*Math.min(n,travel),y:p.y+(e.y-p.y)/Math.max(n,.001)*Math.min(n,travel)};if(!this.map.los(p,next))continue;p.x=next.x;p.y=next.y;if(n<=travel+ENEMIES[e.kind].r){this.hitEnemy(e,p.packet);continue;}}
@@ -255,16 +269,16 @@ export class Simulation{
  hitEnemy(e:Enemy,p:Packet,secondary=false){if(e.hp<=0||p.damage<=0)return;const d=ENEMIES[e.kind],bonus=secondary?1:1+(d.cavalry?p.hunter:0)+(d.boss?p.boss:0);const hit=Math.max(1,p.damage*bonus*100/(100+d.armor*(1-Math.min(1,p.pierce))));const before=e.hp;e.hp-=hit;e.flash=this.time+.1;const tower=this.buildings.find(t=>t.id===p.source);if(tower){tower.damage+=Math.min(before,hit);this.stats.damage[tower.kind]+=Math.min(before,hit);}
   if(p.crit&&!secondary)this.fx('number',e,0xffdf91,.7,.6,''+Math.round(hit)+'!');
   if(e.hp<=0){this.stats.kills++;this.player.gold+=d.gold;this.stats.income+=d.gold;this.player.xp+=d.xp;this.fx('death',e,d.color,d.boss?1.2:.5,.5);
-   while(this.player.level<12&&this.player.xp>=XP[this.player.level]){this.player.level++;this.player.hp=Math.min(100,this.player.hp+10);this.fx('ring',this.player,0xf4d88e,2,1);this.message(`等级 ${this.player.level} · 建筑容量 ${this.cap}`);this.soundEvents.push('level');}
+   while(this.player.level<12&&this.player.xp>=XP[this.player.level]){this.player.level++;for(const w of this.players)if(w.hp>0){w.hp=Math.min(w.maxHp,w.hp+10);this.fx('ring',w,0xf4d88e,2,1);}this.message(`队伍等级 ${this.player.level} · 建筑容量 ${this.cap}`);this.soundEvents.push('level');}
    if(d.boss&&this.rewardPool.length){const index=Math.floor(this.rand()*this.rewardPool.length),kind=this.rewardPool.splice(index,1)[0];this.drop(kind,e);this.message(`${d.name} 被击败 · 地面掉落新奖励`,'boss');}
    const excess=hit-before;if(!secondary&&p.overflow>0&&excess>0){const other=this.nearby(e,2).filter(o=>o.id!==e.id&&this.map.los(e,o)).sort((a,b)=>distance(a,e)-distance(b,e))[0];if(other){this.visuals.push({kind:'arc',x:e.x,y:e.y,tx:other.x,ty:other.y,color:0xf4d88e,size:1,life:.3,age:0});this.hitEnemy(other,{...p,damage:excess*p.overflow,overflow:0,crit:false},true);}}
   }
  }
- cleanDead(){const destroyed=this.buildings.filter(t=>t.hp<=0);for(const t of destroyed){this.stats.lost++;this.fx('blast',t,0xb79072,1,.7);if(this.task?.id===t.id)this.task=null;for(const e of this.enemies)if(e.taunt===t.id){e.tauntUntil=this.time;e.decision=0;}this.message(TOWERS[t.kind].name+' 被摧毁','bad');}
+ cleanDead(){const destroyed=this.buildings.filter(t=>t.hp<=0);for(const t of destroyed){this.stats.lost++;this.fx('blast',t,0xb79072,1,.7);for(const p of this.players)if(p.task?.id===t.id)p.task=null;for(const e of this.enemies)if(e.taunt===t.id){e.tauntUntil=this.time;e.decision=0;}this.message(TOWERS[t.kind].name+' 被摧毁','bad');}
   if(destroyed.length){this.buildings=this.buildings.filter(t=>t.hp>0);this.reindex();}this.enemies=this.enemies.filter(e=>e.hp>0);
  }
  // Explicit practice mode only; normal runs have no debug grants or wave skips.
  practiceStart(){this.start();this.practice=true;this.god=true;this.player.gold=5000;this.player.xp=3900;this.player.level=12;this.time=-10;this.message('演练模式 · 无敌、全建筑解锁，可测试全部装备');}
  grant(kind:RewardKind){if(this.practice)this.drop(kind,this.player);}
- snapshot(){return {state:this.state,time:this.time,wave:this.wave,player:{...this.player},buildings:this.buildings.map(t=>({id:t.id,kind:t.kind,x:t.x,y:t.y,hp:t.hp,level:t.level,progress:t.progress})),enemies:this.enemies.length,kills:this.stats.kills,gear:this.gear.map(g=>g?.kind||null),buffs:{...this.buffs},drops:this.drops.map(d=>({id:d.id,kind:d.kind,x:d.x,y:d.y})),task:this.task,paused:this.paused};}
+ snapshot(){return {state:this.state,time:this.time,wave:this.wave,player:{...this.player,input:{...this.player.input}},players:this.players.map(p=>({id:p.id,x:p.x,y:p.y,hp:p.hp,task:p.task,selected:p.selected})),playerCount:this.playerCount,waveInterval:this.waveInterval,batches:this.batches.reduce((n,b)=>n+b.kinds.length,0),buildings:this.buildings.map(t=>({id:t.id,kind:t.kind,x:t.x,y:t.y,hp:t.hp,level:t.level,progress:t.progress})),enemies:this.enemies.length,kills:this.stats.kills,gear:this.gear.map(g=>g?.kind||null),buffs:{...this.buffs},drops:this.drops.map(d=>({id:d.id,kind:d.kind,x:d.x,y:d.y})),task:this.task,paused:this.paused};}
 }
