@@ -3,10 +3,11 @@ import {Simulation,type Packet} from '../src/sim';
 import {ACTIVES,BUFFS,ENEMIES,HP_SCALE,DMG_SCALE,KEYS,SIZE,TOWERS,WAVES,type ActiveKind} from '../src/data';
 import {cell,distance,flow,WorldMap} from '../src/map';
 const run=(s:Simulation,seconds:number)=>{for(let i=0;i<Math.round(seconds*30);i++)s.tick(1/30);};
-function sandbox(){const s=new Simulation();s.start();s.time=0;s.batches=[];s.god=true;return s;}
+function sandbox(){const s=new Simulation();s.start();s.time=0;s.batches=[];s.god=true;s.addBuilding('arrow',17.5,16.5,true);return s;}
 function equip(s:Simulation,kind:ActiveKind,slot=0){s.gear[slot]={id:s.serial++,kind,ready:-100,until:-100};}
 const packet=(damage:number):Packet=>({damage,pierce:0,hunter:0,boss:0,overflow:0,source:1,crit:false});
 describe('construction and progression',()=>{
+ it('starts with an empty site and requires the player to build the first tower',()=>{const s=new Simulation();expect(s.buildings).toHaveLength(0);expect(s.player.gold).toBe(120);expect(s.player.selected).toBe('arrow');expect(s.cap).toBe(6);});
  it('charges once, preserves interrupted progress, finishes with remaining HP ratio',()=>{const s=sandbox();s.command('build');const t=s.atPlayer()!;expect(s.player.gold).toBe(80);run(s,.9);const progress=t.progress;s.input.x=1;run(s,.2);expect(s.task).toBeNull();expect(t.progress).toBe(progress);s.input.x=0;s.player.x=t.x;s.player.y=t.y;t.hp=t.maxHp*.5;s.command('build');run(s,2.3);expect(t.progress).toBe(1);expect(t.hp/t.maxHp).toBeCloseTo(.5);expect(s.player.gold).toBe(80);});
  it('incoming damage does not cancel construction',()=>{const s=sandbox();s.god=false;s.command('build');s.damagePlayer(10);expect(s.task?.type).toBe('build');run(s,.5);expect(s.atPlayer()!.progress).toBeGreaterThan(0);});
  it('repair takes twice the construction time and a full bar costs half the build price',()=>{const s=sandbox();const t=s.buildings[0];s.player.x=t.x;s.player.y=t.y;t.hp=90;s.command('repair');run(s,.5);expect(t.hp).toBeCloseTo(105);expect(s.player.gold).toBeCloseTo(118.333333);run(s,2.5);expect(t.hp).toBeCloseTo(180);expect(s.player.gold).toBeCloseTo(110);});

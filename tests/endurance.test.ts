@@ -4,7 +4,7 @@ import {ENEMIES,type TowerKind} from '../src/data';
 import {distance} from '../src/map';
 it('a staffed fortress can fight the full independent 20-wave schedule to victory',()=>{
  const s=new Simulation();s.start();s.god=true;s.player.level=12;s.player.gold=99999;
- const locations:[TowerKind,number,number][]=[['arrow',15.5,16.5],['arrow',16.5,15.5],['arrow',16.5,17.5],['arrow',18.5,15.5],['arrow',14.5,17.5],['mortar',14.5,14.5],['mortar',18.5,18.5],['mortar',14.5,18.5],['mortar',18.5,14.5],['frost',13.5,16.5],['frost',19.5,16.5],['frost',16.5,19.5],['taunt',16.5,13.5],['taunt',19.5,18.5],['wall',13.5,18.5]];
+ const locations:[TowerKind,number,number][]=[['arrow',17.5,16.5],['arrow',15.5,16.5],['arrow',16.5,15.5],['arrow',16.5,17.5],['arrow',18.5,15.5],['arrow',14.5,17.5],['mortar',14.5,14.5],['mortar',18.5,18.5],['mortar',14.5,18.5],['mortar',18.5,14.5],['frost',13.5,16.5],['frost',19.5,16.5],['frost',16.5,19.5],['taunt',16.5,13.5],['taunt',19.5,18.5],['wall',13.5,18.5]];
  for(const [kind,x,y]of locations)s.addBuilding(kind,x,y,true);for(const t of s.buildings){t.level=4;s.attributes(t);}
  let maxEnemies=0,maxBosses=0;const start=performance.now();
  for(let frame=0;frame<1200*30&&s.state==='playing';frame++){

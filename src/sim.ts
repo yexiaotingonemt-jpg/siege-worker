@@ -23,7 +23,7 @@ export class Simulation{
  blocked=new Set<number>();towerCells=new Map<number,Building>();fields=new Map<number,Float32Array>();fieldAt=-100;fieldCell='';dirty=true;
  buckets=new Map<number,Enemy[]>();god=false;practice=false;soundEvents:string[]=[];
  networkTracks:{entity:Point;x:number;y:number}[]=[];networkBlend=0;lastNetworkTime:number|undefined;
- constructor(count:1|2|3=1){this.playerCount=count;this.waveInterval=PARTY_RULES[count].interval;const mid=SIZE/2,starts=[[mid+.5,mid+.5],[mid-.5,mid+1.5],[mid+.5,mid+2.5]],colors=[0xf0c563,0x75c8d0,0xd29be8];this.players=starts.slice(0,count).map(([x,y],i)=>({id:i?-(i+1):0,x,y,hp:100,maxHp:100,level:1,xp:0,gold:120,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[i]}));this.player=this.players[0];this.addBuilding('arrow',mid+1.5,mid+.5,true);this.makeBatches();}
+ constructor(count:1|2|3=1){this.playerCount=count;this.waveInterval=PARTY_RULES[count].interval;const mid=SIZE/2,starts=[[mid+.5,mid+.5],[mid-.5,mid+1.5],[mid+.5,mid+2.5]],colors=[0xf0c563,0x75c8d0,0xd29be8];this.players=starts.slice(0,count).map(([x,y],i)=>({id:i?-(i+1):0,x,y,hp:100,maxHp:100,level:1,xp:0,gold:120,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[i]}));this.player=this.players[0];this.makeBatches();}
  get selected(){return this.player.selected;}set selected(v:TowerKind){this.player.selected=v;}
  get task(){return this.player.task;}set task(v:Task){this.player.task=v;}
  get input(){return this.player.input;}set input(v:Point){this.player.input=v;}
