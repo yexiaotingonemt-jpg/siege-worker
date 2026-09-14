@@ -25,3 +25,9 @@ it('928-unit accumulation remains finite and leaves every scheduled batch accoun
  for(let a=0;a<s.enemies.length;a++)for(let b=a+1;b<s.enemies.length;b++){const first=s.enemies[a],second=s.enemies[b];if(!!ENEMIES[first.kind].air!==!!ENEMIES[second.kind].air)continue;expect(distance(first,second)).toBeGreaterThanOrEqual(ENEMIES[first.kind].r+ENEMIES[second.kind].r-.003);}
  expect(s.enemies.every(e=>Number.isFinite(e.x)&&Number.isFinite(e.y)&&Number.isFinite(e.hp))).toBe(true);expect(s.state).toBe('playing');
 },60000);
+it('a remote client interpolates the 1944-enemy three-player schedule without rerunning battle AI',()=>{
+ const host=new Simulation(3);host.start();host.god=true;host.buildings=[];host.reindex();host.time=900;host.tick(1/30);const fullBytes=JSON.stringify(host.networkState()).length,wire=JSON.stringify(host.networkState(true)),compactBytes=wire.length,guest=new Simulation(3);guest.start();guest.reconcileNetworkState(JSON.parse(wire),2);const hp=guest.enemies.reduce((sum,e)=>sum+e.hp,0),start=performance.now();
+ for(let i=0;i<30;i++)guest.predictNetwork(1/30,2);
+ const elapsed=performance.now()-start;console.log(JSON.stringify({test:'1944-unit remote prediction',oneSecondPredictionMs:Number(elapsed.toFixed(2)),fullBytes,compactBytes,remaining:guest.enemies.length}));
+ expect(guest.enemies).toHaveLength(1944);expect(guest.enemies.reduce((sum,e)=>sum+e.hp,0)).toBe(hp);expect(compactBytes).toBeLessThan(fullBytes*.6);expect(elapsed).toBeLessThan(100);
+},60000);

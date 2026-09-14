@@ -51,6 +51,6 @@ export class OnlineRoom{
  sendInput(input:{x:number;y:number}){const key=`${input.x},${input.y}`;if(key!==this.lastInput){this.lastInput=key;this.send({type:'input',input});}}
  sendCommand(action:string){this.send({type:'command',action});}
  sendSelect(index:number){this.send({type:'select',index});}
- pump(sim:Simulation,force=false){if(!this.host||!this.connected)return;const now=performance.now(),interval=sim.enemies.length>250?250:100;if(force||now-this.lastState>=interval){this.lastState=now;this.send({type:'state',state:sim.networkState()});}}
+ pump(sim:Simulation,force=false){if(!this.host||!this.connected)return;const now=performance.now(),interval=sim.enemies.length>250?333:125;if(force||now-this.lastState>=interval){this.lastState=now;this.send({type:'state',state:sim.networkState(true)});}}
  close(){this.ws.close(1000,'离开房间');}
 }
