@@ -8,10 +8,11 @@ export class BattleScene extends Phaser.Scene{
  constructor(sim:Simulation,onTick:()=>void){super('battle');this.sim=sim;this.onTick=onTick;}
  create(){this.world=this.add.graphics();this.actors=this.add.graphics();this.effects=this.add.graphics();this.drawMap();
   this.input.keyboard!.on('keydown',(e:KeyboardEvent)=>{if(['INPUT','SELECT','TEXTAREA'].includes((e.target as HTMLElement)?.tagName))return;this.keys.add(e.code);if(e.repeat)return;
-   if(['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+   if(['Space','Enter','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
    const s=this.sim;if(s.state!=='playing')return;
    if(e.code==='KeyP'){s.paused=!s.paused;this.keys.clear();this.onTick();return;}
    if(e.code==='Escape'){if(s.swap!==null||s.task){s.command('cancel');}else s.paused=!s.paused;this.keys.clear();this.onTick();return;}
+   if((e.code==='Enter'&&s.playerCount===1)||(e.code==='KeyO'&&s.playerCount===2)){s.joinPlayer();this.keys.clear();this.onTick();return;}
    if(/^Digit[1-5]$/.test(e.code)){s.players[0].selected=KEYS[Number(e.code.slice(-1))-1];s.focusPlayer=0;}
    const moveOwner:Record<string,number>={KeyW:0,KeyA:0,KeyS:0,KeyD:0,ArrowUp:1,ArrowLeft:1,ArrowDown:1,ArrowRight:1,KeyI:2,KeyJ:2,KeyK:2,KeyL:2};if(moveOwner[e.code]!==undefined&&moveOwner[e.code]<s.playerCount)s.focusPlayer=moveOwner[e.code];
    const cycles:Record<string,[number,number]>={BracketLeft:[1,-1],BracketRight:[1,1],KeyN:[2,-1],KeyM:[2,1]};const cycle=cycles[e.code];if(cycle&&cycle[0]<s.playerCount){const p=s.players[cycle[0]],i=KEYS.indexOf(p.selected);p.selected=KEYS[(i+cycle[1]+KEYS.length)%KEYS.length];s.focusPlayer=cycle[0];}

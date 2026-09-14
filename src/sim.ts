@@ -26,6 +26,7 @@ export class Simulation{
  get task(){return this.player.task;}set task(v:Task){this.player.task=v;}
  get input(){return this.player.input;}set input(v:Point){this.player.input=v;}
  get focused(){return this.players[this.focusPlayer]??this.player;}
+ get nextWaveAt(){if(this.time<0)return 0;return this.batches.filter(b=>b.wave>this.wave).reduce((n,b)=>Math.min(n,b.time),Infinity);}
  alivePlayers(){return this.players.filter(p=>p.hp>0||this.god);}
  playerForTarget(id:number){return id===0?this.players[0]:id<=-2?this.players[-id-1]:undefined;}
  isPlayerTarget(id:number){return !!this.playerForTarget(id);}
@@ -41,7 +42,15 @@ export class Simulation{
  atPlayer(worker:Worker|number=this.focused){const p=typeof worker==='number'?this.players[worker]:worker;return p&&this.buildings.find(t=>cell(t)===cell(p));}
  message(text:string,type='info'){this.messages.push({text,type,until:this.time+3.5});if(this.messages.length>4)this.messages.shift();}
  fx(kind:string,p:Point,color=0xeec274,size=1,life=.5,text?:string){this.visuals.push({...p,kind,color,size,life,age:0,text});}
- start(){this.state='playing';this.message('敌军将在10秒后抵达。先在脚下建一座箭塔。');}
+ start(){this.state='playing';this.message('敌军将在10秒后抵达。队友可在对局中随时加入。');}
+ workerSpawn(){const origin=this.partyCenter(),valid=(p:Point)=>this.map.canStand(p.x,p.y,.25)&&this.players.every(w=>distance(w,p)>.65)&&this.enemies.every(e=>distance(e,p)>ENEMIES[e.kind].r+.5);for(let ring=1;ring<12;ring++)for(let i=0;i<ring*8;i++){const a=i/(ring*8)*Math.PI*2,p=center(cell({x:origin.x+Math.cos(a)*ring,y:origin.y+Math.sin(a)*ring}));if(valid(p))return p;}return center(cell(origin));}
+ joinPlayer(){if(this.state!=='playing'||this.playerCount>=3)return false;const oldCount=this.playerCount,oldInterval=this.waveInterval,next=(oldCount+1) as 2|3,spawn=this.workerSpawn(),colors=[0xf0c563,0x75c8d0,0xd29be8],p:Worker={id:-(next),...spawn,hp:100,maxHp:100,level:this.player.level,xp:this.player.xp,gold:this.player.gold,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[next-1]};this.players.push(p);this.playerCount=next;this.waveInterval=PARTY_RULES[next].interval;const ratio=this.waveInterval/oldInterval,current=this.wave;
+  if(current===0){for(let wave=1;wave<=20;wave++){const gap=wave<=5?6:5;this.batches.filter(b=>b.wave===wave).sort((a,b)=>a.time-b.time).forEach((b,i)=>{b.time=(wave-1)*this.waveInterval+i*gap;b.point=undefined;b.retry=-100;});}}
+  else for(const b of this.batches)if(!b.done&&b.wave>current){b.time=this.time+Math.max(2,b.time-this.time)*ratio;b.point=undefined;b.retry=-100;}
+  for(let wave=Math.max(1,current+1);wave<=20;wave++){const rows=this.waveBatches(wave,next),future=this.batches.filter(b=>!b.done&&b.wave===wave).sort((a,b)=>a.time-b.time);for(let i=0;i<Math.min(rows.length,future.length);i++)future[i].kinds=rows[i];}
+  if(current>0){const oldScale=PARTY_RULES[oldCount].count,newScale=PARTY_RULES[next].count,kinds:EnemyKind[]=[];WAVES[current-1].forEach((n,k)=>{const add=Math.max(0,Math.round(n*newScale)-Math.round(n*oldScale));for(let i=0;i<add;i++)kinds.push(NORMAL[k]);});if(kinds.length)this.batches.push({time:this.time+2,wave:current,kinds,done:false,retry:-100});}
+  this.focusPlayer=next-1;this.dirty=true;this.message(current>0?`P${next}加入 · 波次改为${this.waveInterval}秒，当前波增援即将抵达`:`P${next}加入 · 波次改为${this.waveInterval}秒，敌军数量已提高`,'wave');this.fx('ring',p,p.color,2,1);return true;
+ }
  addBuilding(kind:TowerKind,x:number,y:number,complete=false){const d=TOWERS[kind];const t:Building={id:this.serial++,kind,x,y,level:1,hp:d.hp*(complete?1:.3),maxHp:d.hp*(complete?1:.3),progress:complete?1:0,armor:complete?d.armor:0,attack:d.attack,range:d.range,interval:d.interval,skillInterval:d.skill,shot:1,skill:0,aim:0,wind:0,skillAim:0,skillWind:0,shield:0,shieldUntil:0,shieldSource:0,damage:0};this.buildings.push(t);this.reindex();return t;}
  reindex(){this.blocked=new Set(this.buildings.filter(t=>t.hp>0).map(cell));this.towerCells=new Map(this.buildings.filter(t=>t.hp>0).map(t=>[cell(t),t]));this.dirty=true;}
  command(action:'build'|'repair'|'upgrade'|'pickup'|'cancel'|'active0'|'active1',playerIndex=this.focusPlayer){
@@ -113,13 +122,14 @@ export class Simulation{
   this.drops.push({id:this.serial++,kind,...best,gear:isActive(kind)?{id:this.serial++,kind,ready:-100,until:-100}:undefined});this.fx('ring',best,0xefca7d,2,1);
  }
  partyCenter(){const list=this.alivePlayers();return{x:list.reduce((n,p)=>n+p.x,0)/Math.max(1,list.length),y:list.reduce((n,p)=>n+p.y,0)/Math.max(1,list.length)};}
- makeBatches(){this.batches=[];const scale=PARTY_RULES[this.playerCount].count;WAVES.forEach((row,i)=>{const count=i<5?2:3,gap=i<5?6:5,scaled=row.map(n=>n?Math.max(1,Math.round(n*scale)):0);for(let batch=0;batch<count;batch++){const kinds:EnemyKind[]=[];scaled.forEach((n,k)=>{const qty=Math.floor(n/count)+(batch>=count-n%count?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if((i+1)%5===0&&batch===count-1)kinds.push(('boss'+((i+1)/5)) as EnemyKind);this.batches.push({time:i*this.waveInterval+batch*gap,wave:i+1,kinds,done:false,retry:-100});}});}
+ waveBatches(wave:number,count=this.playerCount){const row=WAVES[wave-1],batches=wave<=5?2:3,scale=PARTY_RULES[count].count,scaled=row.map(n=>n?Math.max(1,Math.round(n*scale)):0),result:EnemyKind[][]=[];for(let batch=0;batch<batches;batch++){const kinds:EnemyKind[]=[];scaled.forEach((n,k)=>{const qty=Math.floor(n/batches)+(batch>=batches-n%batches?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if(wave%5===0&&batch===batches-1)kinds.push(('boss'+(wave/5)) as EnemyKind);result.push(kinds);}return result;}
+ makeBatches(){this.batches=[];WAVES.forEach((_row,i)=>{const wave=i+1,gap=i<5?6:5;this.waveBatches(wave).forEach((kinds,batch)=>this.batches.push({time:i*this.waveInterval+batch*gap,wave,kinds,done:false,retry:-100}));});}
  spawnPoint(wave:number,batch:number){const origin=this.partyCenter();for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=15+this.rand()*5;const p=center(cell({x:Math.max(2,Math.min(61,origin.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(61,origin.y+Math.sin(angle)*radius))}));if(this.alivePlayers().every(w=>distance(p,w)>=12)&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
  spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r,!!d.air),initial=this.nearestPlayer(point,true);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:initial?.id??-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
  tick(dt:number){if(this.state!=='playing'||this.paused)return;
   this.time+=dt;this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
   this.updatePlayers(dt);for(const t of this.buildings)this.attributes(t);
-  const wave=Math.min(20,Math.max(0,Math.floor(this.time/this.waveInterval)+1));if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
+  const wave=this.time<0?0:this.batches.length?this.batches.reduce((n,b)=>this.time>=b.time?Math.max(n,b.wave):n,0):this.wave;if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
   for(let i=0;i<this.batches.length;i++){const b=this.batches[i];if(b.done||this.time<b.time-2||this.time<b.retry)continue;
    if(!b.point)b.point=this.spawnPoint(b.wave,i);if(this.time<b.time)continue;
    if(!b.point||this.alivePlayers().some(w=>distance(b.point!,w)<8)||!this.map.canStand(b.point.x,b.point.y,.65,this.blocked)){b.point=this.spawnPoint(b.wave,i);b.retry=this.time+2;continue;}
