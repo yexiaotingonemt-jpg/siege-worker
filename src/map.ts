@@ -10,7 +10,7 @@ export class WorldMap{
   for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){
    if(x===0||y===0||x===SIZE-1||y===SIZE-1)this.tiles[y*SIZE+x]=1;
    const river=17+Math.round(Math.sin(y*.17)*2);
-   if(x>=river&&x<=river+2&&y>3&&y<59 && ![13,14,15,30,31,32,48,49,50].includes(y))this.tiles[y*SIZE+x]=2;
+   if(x>=river&&x<=river+2&&y>3&&y<59 && ![12,13,14,15,16,28,29,30,31,32,33,47,48,49,50,51].includes(y))this.tiles[y*SIZE+x]=2;
   }
   const paint=(type:number,rects:number[][])=>{for(const [cx,cy,w,h] of rects)for(let y=cy;y<cy+h;y++)for(let x=cx;x<cx+w;x++)if(this.tiles[y*SIZE+x]===0)this.tiles[y*SIZE+x]=type;};
   // Broken stone ridges form lanes rather than sealed rooms. The 7x7 camp stays clear.
@@ -42,7 +42,7 @@ export function flow(map:WorldMap,target:Point,blocked:Set<number>,breakCost?:Ma
  const pop=()=>{const top=heap[0],last=heap.pop()!;if(heap.length){let i=0;while(i*2+1<heap.length){let j=i*2+1;if(j+1<heap.length&&heap[j+1][1]<heap[j][1])j++;if(heap[j][1]>=last[1])break;heap[i]=heap[j];i=j;}heap[i]=last;}return top;};
  const id=cell(target);dist[id]=0;push(id,0);
  while(heap.length){const [at,d]=pop();if(d!==dist[at])continue;const x=at%SIZE,y=Math.floor(at/SIZE);
-  for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=SIZE||ny>=SIZE)continue;const ni=ny*SIZE+nx,tile=map.tiles[ni];if(tile===1||tile===2)continue;if(blocked.has(ni)&&ni!==id&&!breakCost)continue;if(clearance>.5&&!breakCost&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance,blocked))continue;const nd=Math.fround(d+1+(tile===3?.45:0)+(breakCost?.get(ni)||0));if(nd<dist[ni]){dist[ni]=nd;push(ni,nd);}}
+  for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=SIZE||ny>=SIZE)continue;const ni=ny*SIZE+nx,tile=map.tiles[ni];if(tile===1||tile===2)continue;if(blocked.has(ni)&&ni!==id&&!breakCost)continue;if(clearance>.5&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance))continue;const nd=Math.fround(d+1+(tile===3?.45:0)+(breakCost?.get(ni)||0));if(nd<dist[ni]){dist[ni]=nd;push(ni,nd);}}
  }
  return dist;
 }

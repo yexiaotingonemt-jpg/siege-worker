@@ -13,7 +13,7 @@ it('a staffed fortress can fight the full independent 20-wave schedule to victor
   s.tick(1/30);s.soundEvents=[];
   maxEnemies=Math.max(maxEnemies,s.enemies.length);maxBosses=Math.max(maxBosses,s.enemies.filter(e=>ENEMIES[e.kind].boss).length);
  }
- console.log(JSON.stringify({test:'20-wave endurance',time:s.time,state:s.state,kills:s.stats.kills,remaining:s.enemies.map(e=>({kind:e.kind,x:e.x,y:e.y,d:distance(e,s.player)})),maxEnemies,maxBosses,elapsedMs:Math.round(performance.now()-start)}));
+ console.log(JSON.stringify({test:'20-wave endurance',time:s.time,state:s.state,kills:s.stats.kills,remaining:s.enemies.map(e=>({kind:e.kind,x:e.x,y:e.y,d:distance(e,s.player),target:e.target,wind:e.wind,skillAt:e.skillAt,stunUntil:e.stunUntil})),zones:s.zones,maxEnemies,maxBosses,elapsedMs:Math.round(performance.now()-start)}));
  expect(s.batches.every(b=>b.done)).toBe(true);expect(s.wave).toBe(20);expect(s.state).toBe('won');expect(s.stats.kills).toBe(928);
 },60000);
 it('928-unit accumulation remains finite and leaves every scheduled batch accounted for',()=>{
@@ -22,5 +22,6 @@ it('928-unit accumulation remains finite and leaves every scheduled batch accoun
  s.tick(1/30);expect(s.enemies.length).toBe(928);expect(s.batches.every(b=>b.done)).toBe(true);
  const start=performance.now();for(let i=0;i<30;i++)s.tick(1/30);
  console.log(JSON.stringify({test:'928-unit pressure',oneSecondSimulationMs:Math.round(performance.now()-start),remaining:s.enemies.length}));
+ for(let a=0;a<s.enemies.length;a++)for(let b=a+1;b<s.enemies.length;b++){const first=s.enemies[a],second=s.enemies[b];expect(distance(first,second)).toBeGreaterThanOrEqual(ENEMIES[first.kind].r+ENEMIES[second.kind].r-.003);}
  expect(s.enemies.every(e=>Number.isFinite(e.x)&&Number.isFinite(e.y)&&Number.isFinite(e.hp))).toBe(true);expect(s.state).toBe('playing');
 },60000);

@@ -47,7 +47,7 @@ export class Simulation{
    if(this.player.level<d.unlock){this.message(`达到${d.unlock}级解锁${d.name}`,'bad');return;}
    if(this.buildings.length>=this.cap){this.message('建筑名额已满，包含未完成工地','bad');return;}
    if(this.player.gold<d.cost){this.message('建造点不足','bad');return;}
-   if(this.enemies.some(e=>Math.abs(e.x-p.x)<.5+ENEMIES[e.kind].r&&Math.abs(e.y-p.y)<.5+ENEMIES[e.kind].r)){this.message('敌人占据了这块地面','bad');return;}
+   if(this.enemies.some(e=>e.hp>0&&this.circleHitsBuilding(e,ENEMIES[e.kind].r,p))){this.message('敌人占据了这块地面','bad');return;}
    this.spend(d.cost);const newT=this.addBuilding(this.selected,p.x,p.y);this.task={type:'build',id:newT.id};this.soundEvents.push('build');
   }
   if(action==='repair'){
@@ -103,7 +103,7 @@ export class Simulation{
  }
  makeBatches(){WAVES.forEach((row,i)=>{const count=i<5?2:3,gap=i<5?6:5;for(let batch=0;batch<count;batch++){const kinds:EnemyKind[]=[];row.forEach((n,k)=>{const qty=Math.floor(n/count)+(batch>=count-n%count?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if((i+1)%5===0&&batch===count-1)kinds.push(('boss'+((i+1)/5)) as EnemyKind);this.batches.push({time:i*45+batch*gap,wave:i+1,kinds,done:false,retry:-100});}});}
  spawnPoint(wave:number,batch:number){for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=15+this.rand()*5;const p=center(cell({x:Math.max(2,Math.min(61,this.player.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(61,this.player.y+Math.sin(angle)*radius))}));if(distance(p,this.player)>=12&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
- spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);const e:Enemy={...p,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
+ spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
  tick(dt:number){if(this.state!=='playing'||this.paused)return;
   this.time+=dt;this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
   this.updatePlayer(dt);for(const t of this.buildings)this.attributes(t);
@@ -114,7 +114,7 @@ export class Simulation{
    for(const kind of b.kinds){let p=b.point;for(let tries=0;tries<10;tries++){const pp={x:b.point.x+(this.rand()-.5)*2,y:b.point.y+(this.rand()-.5)*2};if(this.map.canStand(pp.x,pp.y,ENEMIES[kind].r,this.blocked)&&distance(pp,this.player)>=8){p=pp;break;}}this.spawn(kind,p,b.wave);}b.done=true;
   }
   if(this.pendingDrops.length){const pending=this.pendingDrops.splice(0);for(const d of pending)this.drop(d.kind,d.point);}
-  this.rebuildBuckets();this.updateFields();this.updateTowers(dt);this.updateEnemies(dt);this.updateZones(dt);this.updateProjectiles(dt);this.cleanDead();
+  this.rebuildBuckets();this.updateFields();this.updateTowers(dt);this.updateEnemies(dt);this.updateZones(dt);this.resolveEnemyCollisions();this.updateProjectiles(dt);this.cleanDead();
   if(this.player.hp<=0&&!this.god){this.state='lost';this.task=null;this.soundEvents.push('lost');return;}
   this.updateTask(dt);
   if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===20){this.state='won';this.task=null;this.soundEvents.push('won');}
@@ -122,12 +122,31 @@ export class Simulation{
  updatePlayer(dt:number){let {x,y}=this.input;const len=Math.hypot(x,y);if(!len)return;x/=Math.max(1,len);y/=Math.max(1,len);const before={x:this.player.x,y:this.player.y},terrainSpeed=this.map.moveFactor(this.player.x,this.player.y);this.move(this.player,x*this.speed*terrainSpeed*dt,y*this.speed*terrainSpeed*dt,.25,false);
   if(distance(before,this.player)>.0001){this.task=null;if(this.swap!==null&&this.drops.find(d=>d.id===this.swap)&&cell(this.drops.find(d=>d.id===this.swap)!)!==cell(this.player))this.swap=null;}
  }
- move(p:Point,dx:number,dy:number,r:number,enemy:boolean){const block=enemy?this.blocked:undefined;const steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/.18));for(let i=0;i<steps;i++){if(this.map.canStand(p.x+dx/steps,p.y,r,block))p.x+=dx/steps;if(this.map.canStand(p.x,p.y+dy/steps,r,block))p.y+=dy/steps;}}
+ move(p:Point,dx:number,dy:number,r:number,enemy:boolean){const e=enemy?p as Enemy:undefined,oldBucket=e?this.bucketKey(e):0,steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/.18));for(let i=0;i<steps;i++){
+  const nx=p.x+dx/steps;if(this.map.canStand(nx,p.y,r)&&(!e||!this.buildingAtPosition({x:nx,y:p.y},r))){p.x=nx;}
+  const ny=p.y+dy/steps;if(this.map.canStand(p.x,ny,r)&&(!e||!this.buildingAtPosition({x:p.x,y:ny},r))){p.y=ny;}
+ }if(e)this.relocateBucket(e,oldBucket);}
  updateTask(dt:number){if(!this.task)return;const t=this.buildings.find(t=>t.id===this.task!.id);if(!t||cell(t)!==cell(this.player)){this.task=null;return;}
   const d=TOWERS[t.kind];if(this.task.type==='build'){t.progress=Math.min(1,t.progress+dt*this.buildRate/d.work);if(t.progress>=1){const ratio=t.hp/t.maxHp;t.maxHp=d.hp;t.hp=ratio*d.hp;this.attributes(t);this.task=null;this.stats.built++;this.fx('ring',t,d.color,1.5,.6);this.message(d.name+' 建造完成');this.soundEvents.push('complete');}}
   else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRate/d.work*dt);if(heal<.0001){this.task=null;return;}const fee=heal/t.maxHp*d.cost*.3;if(this.player.gold+1e-8<fee){this.task=null;this.message('建造点不足，修复暂停','bad');return;}this.spend(fee);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)this.task=null;}
  }
- rebuildBuckets(){this.buckets.clear();for(const e of this.enemies){if(e.hp<=0)continue;const id=Math.floor(e.x/3)+Math.floor(e.y/3)*24;const arr=this.buckets.get(id)||[];arr.push(e);this.buckets.set(id,arr);}}
+ bucketKey(p:Point){return Math.floor(p.x/3)+Math.floor(p.y/3)*24;}
+ addBucket(e:Enemy){const id=this.bucketKey(e),arr=this.buckets.get(id)||[];if(!arr.includes(e))arr.push(e);this.buckets.set(id,arr);}
+ relocateBucket(e:Enemy,old:number){const next=this.bucketKey(e);if(next===old)return;const arr=this.buckets.get(old);if(arr){const i=arr.indexOf(e);if(i>=0)arr.splice(i,1);}this.addBucket(e);}
+ rebuildBuckets(){this.buckets.clear();for(const e of this.enemies)if(e.hp>0)this.addBucket(e);}
+ circleHitsBuilding(p:Point,r:number,t:Point){const dx=Math.max(0,Math.abs(p.x-t.x)-.5),dy=Math.max(0,Math.abs(p.y-t.y)-.5);return Math.hypot(dx,dy)<r-1e-4;}
+ buildingAtPosition(p:Point,r:number){for(let y=Math.floor(p.y-r-.5);y<=Math.floor(p.y+r+.5);y++)for(let x=Math.floor(p.x-r-.5);x<=Math.floor(p.x+r+.5);x++){const t=this.towerCells.get(y*SIZE+x);if(t&&t.hp>0&&this.circleHitsBuilding(p,r,t))return t;}return undefined;}
+ enemyAtPosition(p:Point,r:number,ignore=0){const reach=r+.65;for(let y=Math.floor((p.y-reach)/3);y<=Math.floor((p.y+reach)/3);y++)for(let x=Math.floor((p.x-reach)/3);x<=Math.floor((p.x+reach)/3);x++)for(const other of this.buckets.get(x+y*24)||[])if(other.id!==ignore&&other.hp>0&&distance(p,other)<r+ENEMIES[other.kind].r-1e-4)return other;return undefined;}
+ enemyPositionFree(p:Point,r:number,ignore=0){return !this.buildingAtPosition(p,r)&&!this.enemyAtPosition(p,r,ignore);}
+ enemySpawnPoint(origin:Point,r:number,ignore=0){const valid=(p:Point)=>this.map.canStand(p.x,p.y,r)&&this.enemyPositionFree(p,r,ignore);if(valid(origin))return origin;
+  const phase=this.serial*2.399963;for(let i=1;i<=900;i++){const radius=.35*Math.sqrt(i),angle=phase+i*2.399963,p={x:origin.x+Math.cos(angle)*radius,y:origin.y+Math.sin(angle)*radius};if(valid(p))return p;}
+  for(let i=0;i<SIZE*SIZE;i++){const id=(i+this.serial*97)%(SIZE*SIZE),p=center(id);if(valid(p))return p;}throw new Error('No non-overlapping enemy spawn position');
+ }
+ resolveEnemyCollisions(){for(let pass=0;pass<5;pass++){this.rebuildBuckets();let overlaps=0;for(const e of this.enemies){if(e.hp<=0)continue;for(const other of [...this.nearby(e,1.35)]){if(other.id<=e.id||other.hp<=0)continue;const minimum=ENEMIES[e.kind].r+ENEMIES[other.kind].r,gap=distance(e,other);if(gap>=minimum-1e-4)continue;overlaps++;
+    const angle=gap>.0001?Math.atan2(other.y-e.y,other.x-e.x):(e.id+other.id)*2.399963,nx=Math.cos(angle),ny=Math.sin(angle),push=(minimum-gap+.001)/2;
+    const a={x:e.x,y:e.y},b={x:other.x,y:other.y};this.move(e,-nx*push,-ny*push,ENEMIES[e.kind].r,true);this.move(other,nx*push,ny*push,ENEMIES[other.kind].r,true);
+    const remaining=minimum-distance(e,other);if(remaining>1e-4){const firstMoved=distance(a,e),secondMoved=distance(b,other);if(firstMoved>=secondMoved)this.move(e,-nx*remaining,-ny*remaining,ENEMIES[e.kind].r,true);else this.move(other,nx*remaining,ny*remaining,ENEMIES[other.kind].r,true);}
+   }}if(!overlaps)break;}this.rebuildBuckets();for(const e of this.enemies){if(e.hp<=0||!this.enemyAtPosition(e,ENEMIES[e.kind].r,e.id))continue;const old=this.bucketKey(e),p=this.enemySpawnPoint(e,ENEMIES[e.kind].r,e.id);e.x=p.x;e.y=p.y;this.relocateBucket(e,old);}}
  nearby(p:Point,r:number){const list:Enemy[]=[];for(let y=Math.floor((p.y-r)/3);y<=Math.floor((p.y+r)/3);y++)for(let x=Math.floor((p.x-r)/3);x<=Math.floor((p.x+r)/3);x++)for(const e of this.buckets.get(x+y*24)||[])if(e.hp>0&&distance(e,p)<=r)list.push(e);return list;}
  updateFields(){if(!this.dirty&&this.fieldCell===cell(this.player)&&this.time<this.fieldAt+.5)return;this.fieldCell=cell(this.player);this.fieldAt=this.time;this.dirty=false;this.fields.clear();this.fields.set(0,flow(this.map,this.player,this.blocked));
   const costs=new Map(this.buildings.map(t=>[cell(t),Math.min(100,2+t.hp/15)]));this.fields.set(-1,flow(this.map,this.player,this.blocked,costs));
@@ -154,16 +173,17 @@ export class Simulation{
    if(e.target<0)continue;const target=this.target(e.target);if(!target){e.decision=0;continue;}
    if(this.canHit(e,target,e.target)){if(this.time>=e.next){e.wind=this.time+d.wind;e.next=this.time+d.interval;}continue;}
    const fieldKey=e.target+(d.r>.5?100000:0);let field=this.fields.get(fieldKey);if(!field){field=flow(this.map,target,this.blocked,e.target===0?undefined:new Map(this.buildings.map(t=>[cell(t),2+t.hp/15])),d.r);this.fields.set(fieldKey,field);}
-   if(!Number.isFinite(field[cell(e)]))field=this.fields.get(-1)!;
-   const ci=cell(e),cp=center(ci);let best=ci,value=field[ci];
-   for(const id of [ci+1,ci-1,ci+SIZE,ci-SIZE])if(id>=0&&id<SIZE*SIZE&&field[id]<value){best=id;value=field[id];}
+   const ci=cell(e),cp=center(ci);let best=ci,value=field[ci],recovered=false;
+   if(!Number.isFinite(value)&&e.target===0){const breakKey=d.r>.5?-100001:-1;let breakField=this.fields.get(breakKey);if(!breakField){const costs=new Map(this.buildings.map(t=>[cell(t),2+t.hp/15]));breakField=flow(this.map,this.player,this.blocked,costs,d.r);this.fields.set(breakKey,breakField);}field=breakField;value=field[ci];}
+   if(!Number.isFinite(value)){let nearest=Infinity,cx=ci%SIZE,cy=Math.floor(ci/SIZE);for(let oy=-4;oy<=4;oy++)for(let ox=-4;ox<=4;ox++){const x=cx+ox,y=cy+oy;if(x<0||y<0||x>=SIZE||y>=SIZE)continue;const id=y*SIZE+x;if(!Number.isFinite(field[id]))continue;const p=center(id),gap=distance(e,p);if(gap<nearest){nearest=gap;best=id;value=field[id];recovered=true;}}}
+   if(!recovered)for(const id of [ci+1,ci-1,ci+SIZE,ci-SIZE])if(id>=0&&id<SIZE*SIZE&&field[id]<value){best=id;value=field[id];}
    let dest=best===ci?target:center(best);const obstacle=this.towerCells.get(best);
    if(obstacle&&obstacle.id!==e.target){if(this.canHit(e,obstacle,obstacle.id)){e.target=obstacle.id;if(this.time>=e.next){e.wind=this.time+d.wind;e.next=this.time+d.interval;}continue;}}
    if(best===ci&&distance(e,cp)>.3&&e.target!==0)dest=cp;
    let dx=dest.x-e.x,dy=dest.y-e.y,n=Math.hypot(dx,dy);if(n>.001){dx/=n;dy/=n;const slow=e.slowUntil>this.time?e.slow:1;let foam=1;for(const z of this.zones)if(z.kind==='foam'&&z.until>this.time&&distance(e,z)<=z.radius)foam=Math.min(foam,d.boss?.75:.5);
     const speed=d.speed*(e.kind==='boss4'&&e.hp/e.maxHp<.4?1.15:1)*Math.max(.4,Math.min(slow,foam))*this.map.moveFactor(e.x,e.y);
-    // Gentle crowd separation, bounded so it cannot reverse forward progress.
-    let sx=0,sy=0;for(const other of this.nearby(e,.8)){if(other.id===e.id)continue;const gap=distance(e,other),wanted=(d.r+ENEMIES[other.kind].r)*.7;if(gap>0&&gap<wanted){sx+=(e.x-other.x)/gap*(wanted-gap);sy+=(e.y-other.y)/gap*(wanted-gap);}}
+    // Soft steering creates room before the hard circular colliders touch.
+    let sx=0,sy=0;for(const other of this.nearby(e,1.35)){if(other.id===e.id)continue;const gap=distance(e,other),wanted=d.r+ENEMIES[other.kind].r+.08;if(gap>0&&gap<wanted){sx+=(e.x-other.x)/gap*(wanted-gap);sy+=(e.y-other.y)/gap*(wanted-gap);}}
     const sep=Math.hypot(sx,sy);if(sep>.35){sx*=.35/sep;sy*=.35/sep;}
     const old={x:e.x,y:e.y};this.move(e,(dx*speed+sx)*dt,(dy*speed+sy)*dt,d.r,true);
     if(distance(old,e)<.00001){this.move(e,-dy*speed*dt,dx*speed*dt,d.r,true);}
@@ -182,11 +202,11 @@ export class Simulation{
    if(z.kind==='smash'&&!z.fired){z.fired=true;this.areaDamage(z,2,30,80);this.fx('blast',z,0xe98965,2,.5);}
    if(z.kind==='rain'){z.fired=true;if(this.time>=z.next&&z.next<=z.until+.001){this.areaDamage(z,2,8,12);this.fx('rain',z,0xe98965,2,.4);z.next+=1;}}
    if(z.kind==='charge'){if(!owner){z.until=this.time;continue;}z.fired=true;const travel=Math.min(8*dt,6-z.travel);const nx=owner.x+z.dx*travel,ny=owner.y+z.dy*travel;
-    const hit=this.buildings.find(t=>distance(t,{x:nx,y:ny})<.5+ENEMIES[owner.kind].r);
+    const hit=this.buildingAtPosition({x:nx,y:ny},ENEMIES[owner.kind].r);
     if(hit){this.damageBuilding(hit,100);z.until=this.time;this.fx('blast',hit,0xe98965,1.5);}
     else if(!this.invincible&&distance(this.player,{x:nx,y:ny})<ENEMIES[owner.kind].r+.25){this.damagePlayer(25);this.move(this.player,z.dx,z.dy,.25,false);this.task=null;z.until=this.time;}
     else if(!this.map.canStand(nx,ny,ENEMIES[owner.kind].r)){z.until=this.time;}
-    else{owner.x=nx;owner.y=ny;z.travel+=travel;if(z.travel>=6)z.until=this.time;}
+    else{const before={x:owner.x,y:owner.y};this.move(owner,z.dx*travel,z.dy*travel,ENEMIES[owner.kind].r,true);const moved=distance(before,owner);z.travel+=moved;if(moved<travel*.5||z.travel>=6)z.until=this.time;}
    }
   }this.zones=this.zones.filter(z=>z.until>this.time);}
  areaDamage(p:Point,r:number,player:number,building:number){if(distance(this.player,p)<=r)this.damagePlayer(player);for(const t of this.buildings)if(distance(t,p)<=r)this.damageBuilding(t,building);}

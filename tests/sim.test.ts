@@ -1,7 +1,7 @@
 import {describe,it,expect} from 'vitest';
 import {Simulation,type Packet} from '../src/sim';
 import {ACTIVES,BUFFS,ENEMIES,HP_SCALE,DMG_SCALE,KEYS,SIZE,TOWERS,WAVES,type ActiveKind} from '../src/data';
-import {cell,flow,WorldMap} from '../src/map';
+import {cell,distance,flow,WorldMap} from '../src/map';
 const run=(s:Simulation,seconds:number)=>{for(let i=0;i<Math.round(seconds*30);i++)s.tick(1/30);};
 function sandbox(){const s=new Simulation();s.start();s.time=0;s.batches=[];s.god=true;return s;}
 function equip(s:Simulation,kind:ActiveKind,slot=0){s.gear[slot]={id:s.serial++,kind,ready:-100,until:-100};}
@@ -56,6 +56,12 @@ describe('continuous enemy priority',()=>{
  it('switches from a building during windup immediately and restarts the windup',()=>{const s=sandbox(),t=s.buildings[0];s.player.x=45;s.player.y=45;const e=s.spawn('infantry',{x:t.x+1,y:t.y},1);s.updateEnemies(0);expect(e.target).toBe(t.id);expect(e.wind).toBeGreaterThan(0);const hp=t.hp;s.time+=.1;s.player.x=e.x;s.player.y=e.y+.6;s.updateEnemies(0);expect(e.target).toBe(0);expect(e.wind).toBeCloseTo(s.time+ENEMIES.infantry.wind);expect(t.hp).toBe(hp);});
  it('updates priority while stunned and returns to player as taunt expires',()=>{const s=sandbox(),t=s.buildings[0];const e=s.spawn('infantry',{x:t.x+1,y:t.y},1);s.player.x=e.x;s.player.y=e.y+.6;e.stunUntil=10;e.taunt=t.id;e.tauntUntil=1;s.updateEnemies(0);expect(e.target).toBe(t.id);s.time=1;s.updateEnemies(0);expect(e.target).toBe(0);});
  it('preserves a valid building target against equal-priority candidates',()=>{const s=sandbox(),t=s.buildings[0];s.player.x=45;s.player.y=45;const e=s.spawn('archer',{x:t.x+2,y:t.y},1);e.target=t.id;s.addBuilding('wall',t.x+1,t.y+1,true);s.updateEnemies(0);expect(e.target).toBe(t.id);});
+});
+
+describe('physical collision volumes',()=>{
+ it('places enemies without overlapping each other or a building',()=>{const s=sandbox();s.buildings=[];s.reindex();const t=s.addBuilding('wall',36.5,32.5,true),a=s.spawn('heavy',{x:36.5,y:32.5},1),b=s.spawn('boss4',{x:a.x,y:a.y},20);expect(s.circleHitsBuilding(a,ENEMIES[a.kind].r,t)).toBe(false);expect(s.circleHitsBuilding(b,ENEMIES[b.kind].r,t)).toBe(false);expect(distance(a,b)).toBeGreaterThanOrEqual(ENEMIES[a.kind].r+ENEMIES[b.kind].r-.001);});
+ it('keeps a moving crowd separated while allowing the queue to advance',()=>{const s=sandbox();s.buildings=[];s.reindex();const enemies=[s.spawn('infantry',{x:36.5,y:32.5},1),s.spawn('heavy',{x:36.5,y:32.5},1),s.spawn('cavalry',{x:36.5,y:32.5},1)];const start=Math.max(...enemies.map(e=>e.x));for(let i=0;i<90;i++){s.tick(1/30);for(let a=0;a<enemies.length;a++)for(let b=a+1;b<enemies.length;b++)expect(distance(enemies[a],enemies[b])).toBeGreaterThanOrEqual(ENEMIES[enemies[a].kind].r+ENEMIES[enemies[b].kind].r-.003);}expect(Math.max(...enemies.map(e=>e.x))).toBeLessThan(start);});
+ it('prevents enemies from entering a building collider while attacking it',()=>{const s=sandbox(),t=s.buildings[0];s.player.x=45;s.player.y=45;const e=s.spawn('heavy',{x:t.x+2,y:t.y},1);run(s,3);expect(s.circleHitsBuilding(e,ENEMIES[e.kind].r,t)).toBe(false);expect(s.edgeDistance(e,t,t.id)).toBeGreaterThanOrEqual(0);});
 });
 
 it('screenshot geometry: infantry keeps attacking tower at two cells, switches when player enters actual reach',()=>{const s=sandbox();s.buildings=[];s.reindex();const t=s.addBuilding('arrow',26.5,20.5,true);const e=s.spawn('infantry',{x:25.4,y:21.5},1);s.player.x=27.4;s.player.y=21.5;s.updateEnemies(0);expect(s.canHit(e,s.player,0)).toBe(false);expect(e.target).toBe(t.id);const hp=t.hp;s.player.x=26.5;s.updateEnemies(0);expect(s.canHit(e,s.player,0)).toBe(true);expect(e.target).toBe(0);s.time=e.wind;s.updateEnemies(0);expect(t.hp).toBe(hp);});
