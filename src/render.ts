@@ -24,20 +24,29 @@ export class BattleScene extends Phaser.Scene{
   for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const id=y*SIZE+x,px=x*TILE,py=y*TILE,type=this.sim.map.tiles[id],high=!!this.sim.map.elevation[id],shade=rand();
    if(type===2){g.fillStyle(high?(shade>.5?0x3b6968:0x3e6e6c):(shade>.5?0x315b5d:0x345f61)).fillRect(px,py,TILE,TILE);g.lineStyle(1,0x86bab1,.18);g.lineBetween(px+8,py+12,px+24,py+12);if(shade>.6)g.lineBetween(px+22,py+29,px+35,py+29);}
    else if(type===3){g.fillStyle(high?(shade>.55?0x5b573d:0x53543a):(shade>.55?0x4a4934:0x444630)).fillRect(px,py,TILE,TILE);g.fillStyle(0x776a47,.22).fillEllipse(px+14,py+13,18,8).fillEllipse(px+31,py+29,15,7);g.lineStyle(1,0xa69561,.24).strokeCircle(px+13,py+13,4).strokeCircle(px+31,py+29,3);}
+   else if(type===4)g.fillStyle(0x26382e).fillRect(px,py,TILE,TILE);
    else{g.fillStyle(high?(shade>.75?0x476248:shade>.3?0x425d44:0x3f5941):(shade>.75?0x354e3d:shade>.3?0x314b39:0x304837)).fillRect(px,py,TILE,TILE);
     if(type===1){g.fillStyle(0x122920,.4).fillEllipse(px+24,py+34,41,17);g.fillStyle(0x60766a).fillPoints([{x:px+3,y:py+24},{x:px+8,y:py+8},{x:px+28,y:py+3},{x:px+40,y:py+15},{x:px+36,y:py+34},{x:px+13,y:py+36}],true);g.fillStyle(0x809083).fillTriangle(px+8,py+8,px+28,py+3,px+22,py+21);g.fillStyle(0x4b6157).fillTriangle(px+22,py+21,px+40,py+15,px+36,py+34);g.lineStyle(1,0x9dab92,.4).lineBetween(px+9,py+9,px+26,py+5);}
     else{if(shade>.52){const a=px+rand()*34+4,b=py+rand()*32+5;g.lineStyle(1,0x73945d,.27).lineBetween(a,b,a-2,b-4).lineBetween(a,b,a+3,b-5);}if(shade>.91){g.fillStyle(0xb9b57b,.45).fillCircle(px+14,py+24,1.3).fillCircle(px+18,py+22,1);}}
    }
   }
-  // Cliff rims explain the blocked height transition; paired ramp cells cut visible passes through them.
-  const cliff=(x1:number,y1:number,x2:number,y2:number)=>{g.lineStyle(8,0x17291f,.75).lineBetween(x1,y1,x2,y2);g.lineStyle(2,0x91a56f,.5).lineBetween(x1,y1-2,x2,y2-2);};
-  for(let y=1;y<SIZE-1;y++)for(let x=1;x<SIZE-1;x++){const id=y*SIZE+x;if(!this.sim.map.elevation[id]||this.sim.map.ramps[id])continue;const px=x*TILE,py=y*TILE;
-   if(!this.sim.map.elevation[id-1]&&!this.sim.map.ramps[id-1])cliff(px,py,px,py+TILE);
-   if(!this.sim.map.elevation[id+1]&&!this.sim.map.ramps[id+1])cliff(px+TILE,py,px+TILE,py+TILE);
-   if(!this.sim.map.elevation[id-SIZE]&&!this.sim.map.ramps[id-SIZE])cliff(px,py,px+TILE,py);
-   if(!this.sim.map.elevation[id+SIZE]&&!this.sim.map.ramps[id+SIZE])cliff(px,py+TILE,px+TILE,py+TILE);
+  // A full blocked tile now depicts the vertical drop instead of a thin outline.
+  for(let y=1;y<SIZE-1;y++)for(let x=1;x<SIZE-1;x++){const id=y*SIZE+x;if(this.sim.map.tiles[id]!==4)continue;const px=x*TILE,py=y*TILE,left=!this.sim.map.elevation[id-1],right=!this.sim.map.elevation[id+1],up=!this.sim.map.elevation[id-SIZE],down=!this.sim.map.elevation[id+SIZE],dx=left?-1:right?1:0,dy=up?-1:down?1:0;
+   const light=0x52684f,mid=0x34483a,dark=0x17271f;let tl=mid,tr=mid,bl=mid,br=mid;
+   if(dx===1&&dy===1){tl=light;br=dark;}else if(dx===-1&&dy===-1){tl=dark;br=light;}else if(dx===1&&dy===-1){tr=dark;bl=light;}else if(dx===-1&&dy===1){tl=mid;tr=light;bl=dark;br=mid;}
+   else if(dx===1){tl=light;bl=light;tr=dark;br=dark;}else if(dx===-1){tl=dark;bl=dark;tr=light;br=light;}else if(dy===1){tl=light;tr=light;bl=dark;br=dark;}else{tl=dark;tr=dark;bl=light;br=light;}
+   g.fillGradientStyle(tl,tr,bl,br,1).fillRect(px,py,TILE,TILE);
+   g.lineStyle(3,0x91a273,.55);if(left)g.lineBetween(px+TILE-3,py+3,px+TILE-3,py+TILE-3);if(right)g.lineBetween(px+3,py+3,px+3,py+TILE-3);if(up)g.lineBetween(px+3,py+TILE-3,px+TILE-3,py+TILE-3);if(down)g.lineBetween(px+3,py+3,px+TILE-3,py+3);
+   g.lineStyle(1,0x102018,.3);if(left)g.lineBetween(px,py,px,py+TILE);if(right)g.lineBetween(px+TILE,py,px+TILE,py+TILE);if(up)g.lineBetween(px,py,px+TILE,py);if(down)g.lineBetween(px,py+TILE,px+TILE,py+TILE);
+   g.lineStyle(1,0x9aa286,.23).lineBetween(px+12,py+10,px+18,py+22).lineBetween(px+18,py+22,px+14,py+31).lineBetween(px+30,py+7,px+26,py+17);
   }
-  for(let i=0;i<this.sim.map.ramps.length;i++)if(this.sim.map.ramps[i]){const px=i%SIZE*TILE,py=Math.floor(i/SIZE)*TILE;g.fillStyle(0xb19a68,.2).fillRect(px,py,TILE,TILE);g.lineStyle(1,0xd3bd7b,.35);for(let n=7;n<TILE;n+=9)g.lineBetween(px+7,py+n,px+TILE-7,py+n);}
+  // Two-cell ramps use a continuous color slope and lengthwise guide marks, avoiding stair-step stripes.
+  for(let i=0;i<this.sim.map.ramps.length;i++)if(this.sim.map.ramps[i]){const x=i%SIZE,y=Math.floor(i/SIZE),px=x*TILE,py=y*TILE,high=!!this.sim.map.elevation[i];let pair=-1;
+   for(const off of [-1,1,-SIZE,SIZE]){const ni=i+off;if(this.sim.map.ramps[ni]&&this.sim.map.elevation[ni]!==this.sim.map.elevation[i]){pair=ni;break;}}
+   if(pair<0)continue;const pairX=pair%SIZE,pairY=Math.floor(pair/SIZE),dx=high?pairX-x:x-pairX,dy=high?pairY-y:y-pairY,from=high?0x566c50:0x907851,to=high?0x907851:0x344d3b;
+   if(dx===1)g.fillGradientStyle(from,to,from,to,1);else if(dx===-1)g.fillGradientStyle(to,from,to,from,1);else if(dy===1)g.fillGradientStyle(from,from,to,to,1);else g.fillGradientStyle(to,to,from,from,1);g.fillRect(px,py,TILE,TILE);
+   g.lineStyle(2,0xc2ae79,.36);if(dx){g.lineBetween(px+2,py+5,px+TILE-2,py+5).lineBetween(px+2,py+TILE-5,px+TILE-2,py+TILE-5);g.lineStyle(1,0xe0cb91,.2).lineBetween(px+3,py+TILE/2,px+TILE-3,py+TILE/2);}else{g.lineBetween(px+5,py+2,px+5,py+TILE-2).lineBetween(px+TILE-5,py+2,px+TILE-5,py+TILE-2);g.lineStyle(1,0xe0cb91,.2).lineBetween(px+TILE/2,py+3,px+TILE/2,py+TILE-3);}
+  }
   // A weathered foundation marks the initial camp without constraining construction.
   g.lineStyle(1,0xd7c896,.12).strokeRect(29*TILE,29*TILE,7*TILE,7*TILE);g.lineStyle(1,0xcabf91,.055);
   for(let i=1;i<SIZE;i++)g.lineBetween(i*TILE,0,i*TILE,SIZE*TILE).lineBetween(0,i*TILE,SIZE*TILE,i*TILE);

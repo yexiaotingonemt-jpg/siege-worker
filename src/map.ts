@@ -5,7 +5,7 @@ export const cell=(p:Point)=>Math.floor(p.y)*SIZE+Math.floor(p.x);
 export const center=(i:number)=>({x:i%SIZE+.5,y:Math.floor(i/SIZE)+.5});
 export function random(seed:number){return ()=>{seed|=0;seed=seed+0x6d2b79f5|0;let t=Math.imul(seed^seed>>>15,1|seed);t=t+Math.imul(t^t>>>7,61|t)^t;return ((t^t>>>14)>>>0)/4294967296;};}
 export class WorldMap{
- tiles=new Uint8Array(SIZE*SIZE); // 0 meadow, 1 stone, 2 water, 3 mud
+ tiles=new Uint8Array(SIZE*SIZE); // 0 meadow, 1 stone, 2 water, 3 mud, 4 cliff face
  elevation=new Uint8Array(SIZE*SIZE); // 0 lowland, 1 highland
  ramps=new Uint8Array(SIZE*SIZE); // paired high/low cells form a passable slope
  constructor(){
@@ -34,11 +34,15 @@ export class WorldMap{
    [29,44,30,44],[29,45,30,45],[23,39,23,38],[24,39,24,38],
    [39,48,38,48],[39,49,38,49],[45,43,45,42],[46,43,46,42]];
   for(const [hx,hy,lx,ly] of rampPairs){for(const [x,y] of [[hx,hy],[lx,ly]]){this.ramps[y*SIZE+x]=1;this.tiles[y*SIZE+x]=0;}}
+  // Raised boundary cells are real cliff faces. Ramp mouths are the only passable breaks in the ring.
+  for(let y=1;y<SIZE-1;y++)for(let x=1;x<SIZE-1;x++){const id=y*SIZE+x;if(!this.elevation[id]||this.ramps[id])continue;
+   if(!this.elevation[id-1]||!this.elevation[id+1]||!this.elevation[id-SIZE]||!this.elevation[id+SIZE])this.tiles[id]=4;
+  }
  }
  terrain(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 1;return this.tiles[Math.floor(y)*SIZE+Math.floor(x)];}
  elevationAt(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 0;return this.elevation[Math.floor(y)*SIZE+Math.floor(x)];}
  rampAt(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return false;return !!this.ramps[Math.floor(y)*SIZE+Math.floor(x)];}
- blockedTerrain(x:number,y:number){const t=this.terrain(x,y);return t===1||t===2;}
+ blockedTerrain(x:number,y:number){const t=this.terrain(x,y);return t===1||t===2||t===4;}
  moveFactor(x:number,y:number){return this.terrain(x,y)===3?.7:1;}
  canFly(x:number,y:number,r=.25){return x-r>=1&&y-r>=1&&x+r<SIZE-1&&y+r<SIZE-1;}
  canStand(x:number,y:number,r=.25,blocked?:Set<number>){
@@ -61,7 +65,7 @@ export function flow(map:WorldMap,target:Point,blocked:Set<number>,breakCost?:Ma
  const id=cell(target);dist[id]=0;push(id,0);
  while(heap.length){const [at,d]=pop();if(d!==dist[at])continue;const x=at%SIZE,y=Math.floor(at/SIZE);
   for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx<0||ny<0||nx>=SIZE||ny>=SIZE)continue;const ni=ny*SIZE+nx,tile=map.tiles[ni];
-   if(!air&&(tile===1||tile===2))continue;
+   if(!air&&(tile===1||tile===2||tile===4))continue;
    if(!air&&map.elevation[at]!==map.elevation[ni]&&!map.ramps[at]&&!map.ramps[ni])continue;
    if(!air&&blocked.has(ni)&&ni!==id&&!breakCost)continue;
    if(!air&&clearance>.5&&ni!==id&&!map.canStand(nx+.5,ny+.5,clearance))continue;
