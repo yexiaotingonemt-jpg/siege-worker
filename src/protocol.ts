@@ -13,7 +13,7 @@ const point=(value:unknown):value is Point=>{
  const x=value.x,y=value.y;
  return finite(x)&&finite(y)&&x>=-4&&x<=SIZE+4&&y>=-4&&y<=SIZE+4;
 };
-const player=(value:unknown)=>{if(!object(value)||!point(value))return false;const gold=(value as Record<string,unknown>).gold;return finite(gold)&&gold>=0&&gold<=1e7;};
+const player=(value:unknown)=>{if(!object(value)||!point(value))return false;const data=value as unknown as Record<string,unknown>,gold=data.gold,xp=data.xp,level=data.level;return finite(gold)&&gold>=0&&gold<=1e7&&finite(xp)&&xp>=0&&xp<=1e8&&Number.isInteger(level)&&Number(level)>=1&&Number(level)<=12;};
 const building=(value:unknown)=>{if(!object(value)||!point(value))return false;const owner=(value as Record<string,unknown>).owner;return Number.isInteger(owner)&&[0,-2,-3].includes(Number(owner));};
 
 export function validInput(value:unknown):value is Point{
@@ -30,6 +30,7 @@ export function validNetworkState(value:unknown,requiredPlayers=1,lastTime?:numb
  if(lastTime!==undefined&&value.time<lastTime-1)return false;
  if(!Number.isInteger(value.playerCount)||Number(value.playerCount)<requiredPlayers||Number(value.playerCount)>3)return false;
  const players=value.players;if(!array(players,3)||players.length!==value.playerCount||!players.every(player))return false;
+ const leader=players[0] as Record<string,unknown>;if(!players.every(item=>object(item)&&item.xp===leader.xp&&item.level===leader.level))return false;
  const buildings=value.buildings;if(!array(buildings,SIZE*SIZE)||!buildings.every(building))return false;
  const limits:[string,number,boolean][]=[['enemies',3000,true],['projectiles',6000,true],['zones',256,true],['drops',128,true],['visuals',1200,true],['batches',128,false],['messages',32,false],['gear',2,false]];
  for(const [key,max,hasPoint] of limits){const list=value[key];if(!array(list,max)||(hasPoint&&!list.every(point)))return false;}
