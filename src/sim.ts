@@ -1,4 +1,4 @@
-import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,MORTAR_TARGET_CAP,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,REVIVE_COST,SIZE,TOWERS,UPGRADE,WAVE_BATCHES,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
+import {ACTIVES,BOSS_WAVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,MINION_REWARD_DROP_CHANCE,MORTAR_TARGET_CAP,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,REVIVE_COST,SIZE,TOWERS,UPGRADE,WAVE_BATCHES,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
 import {cell,center,distance,flow,random,WorldMap,type Point} from './map';
 export interface Gear{id:number;kind:ActiveKind;ready:number;until:number}
 export interface Building extends Point{id:number;owner:number;kind:TowerKind;level:number;hp:number;maxHp:number;progress:number;armor:number;attack:number;range:number;interval:number;skillInterval:number;shot:number;skill:number;aim:number;wind:number;skillAim:number;skillWind:number;shield:number;shieldUntil:number;shieldSource:number;damage:number}
@@ -93,7 +93,7 @@ export class Simulation{
   t.armor=d.armor+5*(t.level-1)+(near?15*this.b('armor'):0);t.attack=d.attack*DMG_SCALE[t.level-1]*(1+(near?.25*this.b('power'):0));
   t.range=d.range+(near&&d.attack?this.b('range'):0);t.interval=d.interval/(1+(near?.2*this.b('haste')+(this.active('overload')?.6:0):0));t.skillInterval=d.skill*(1-(near?Math.min(.5,.15*this.b('resonance')):0));
  }
- use(slot:number,playerIndex=this.focusPlayer){const p=this.players[playerIndex]??this.player,g=this.gear[slot];if(!g){this.message('击败BOSS，拾取主动装备');return;}
+ use(slot:number,playerIndex=this.focusPlayer){const p=this.players[playerIndex]??this.player,g=this.gear[slot];if(!g){this.message('击败敌人，拾取主动装备');return;}
   const d=ACTIVES[g.kind];if(Math.max(g.ready,this.shared[g.kind]||-100)>this.time){this.message('装备尚在冷却');return;}
   const here=this.atPlayer(p),near=this.buildings.filter(t=>distance(t,p)<=4);
   if(g.kind==='shield'&&!near.length){this.message('4格内没有可保护的建筑','bad');return;}
@@ -127,7 +127,8 @@ export class Simulation{
   this.drops.push({id:this.serial++,kind,...best,gear:isActive(kind)?{id:this.serial++,kind,ready:-100,until:-100}:undefined});this.fx('ring',best,0xefca7d,2,1);
  }
  partyCenter(){const list=this.alivePlayers();return{x:list.reduce((n,p)=>n+p.x,0)/Math.max(1,list.length),y:list.reduce((n,p)=>n+p.y,0)/Math.max(1,list.length)};}
- waveBatches(wave:number,count=this.playerCount){const row=WAVES[wave-1],batches=wave<=5?WAVE_BATCHES.early:WAVE_BATCHES.late,scale=PARTY_RULES[count].count,scaled=row.map(n=>n?Math.max(1,Math.round(n*scale)):0),result:EnemyKind[][]=[];for(let batch=0;batch<batches;batch++){const kinds:EnemyKind[]=[];scaled.forEach((n,k)=>{const qty=Math.floor(n/batches)+(batch>=batches-n%batches?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if(wave%5===0&&batch===batches-1)kinds.push(('boss'+(wave/5)) as EnemyKind);result.push(kinds);}return result;}
+ reservedBossRewards(){return this.enemies.filter(e=>e.hp>0&&ENEMIES[e.kind].boss).length+this.batches.filter(b=>!b.done).reduce((n,b)=>n+b.kinds.filter(k=>ENEMIES[k].boss).length,0);}
+ waveBatches(wave:number,count=this.playerCount){const row=WAVES[wave-1],batches=wave<=5?WAVE_BATCHES.early:WAVE_BATCHES.late,scale=PARTY_RULES[count].count,scaled=row.map(n=>n?Math.max(1,Math.round(n*scale)):0),result:EnemyKind[][]=[];for(let batch=0;batch<batches;batch++){const kinds:EnemyKind[]=[];scaled.forEach((n,k)=>{const qty=Math.floor(n/batches)+(batch>=batches-n%batches?1:0);for(let j=0;j<qty;j++)kinds.push(NORMAL[k]);});if(BOSS_WAVES[wave]&&batch===batches-1)kinds.push(BOSS_WAVES[wave]);result.push(kinds);}return result;}
  makeBatches(){this.batches=[];WAVES.forEach((_row,i)=>{const wave=i+1;this.waveBatches(wave).forEach((kinds,batch)=>this.batches.push({time:i*this.waveInterval+batch*WAVE_BATCHES.gap,wave,kinds,done:false,retry:-100}));});}
  spawnPoint(wave:number,batch:number){const origin=this.partyCenter();for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=10+this.rand()*3;const p=center(cell({x:Math.max(2,Math.min(SIZE-3,origin.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(SIZE-3,origin.y+Math.sin(angle)*radius))}));if(this.alivePlayers().every(w=>distance(p,w)>=8)&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
  spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r,!!d.air),initial=this.nearestPlayer(point,true);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:initial?.id??-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
@@ -305,7 +306,7 @@ export class Simulation{
   if(p.crit&&!secondary)this.fx('number',e,0xffdf91,.7,.6,''+Math.round(hit)+'!');
   if(e.hp<=0){this.stats.kills++;this.setGold(this.gold+d.gold);this.stats.income+=d.gold;this.player.xp+=d.xp;this.fx('death',e,d.color,d.boss?1.2:.5,.5);
    while(this.player.level<12&&this.player.xp>=XP[this.player.level]){this.player.level++;for(const w of this.players){w.level=this.player.level;w.xp=this.player.xp;if(w.hp>0){w.hp=Math.min(w.maxHp,w.hp+10);this.fx('ring',w,0xf4d88e,2,1);}}this.message(`队伍等级 ${this.player.level}`);this.soundEvents.push('level');}
-   if(d.boss&&this.rewardPool.length){const index=Math.floor(this.rand()*this.rewardPool.length),kind=this.rewardPool.splice(index,1)[0];this.drop(kind,e);this.message(`${d.name} 被击败 · 地面掉落新奖励`,'boss');}
+   const rewardDrop=d.boss||(this.rewardPool.length>this.reservedBossRewards()&&this.rand()<MINION_REWARD_DROP_CHANCE);if(rewardDrop&&this.rewardPool.length){const index=Math.floor(this.rand()*this.rewardPool.length),kind=this.rewardPool.splice(index,1)[0];this.drop(kind,e);this.message(d.boss?`${d.name} 被击败 · 地面掉落新奖励`:`${d.name}掉落了战地奖励`,d.boss?'boss':'info');}
    const excess=hit-before;if(!secondary&&p.overflow>0&&excess>0){const other=this.nearby(e,2).filter(o=>o.id!==e.id&&this.map.los(e,o)).sort((a,b)=>distance(a,e)-distance(b,e))[0];if(other){this.visuals.push({kind:'arc',x:e.x,y:e.y,tx:other.x,ty:other.y,color:0xf4d88e,size:1,life:.3,age:0});this.hitEnemy(other,{...p,damage:excess*p.overflow,overflow:0,crit:false},true);}}
   }
  }
