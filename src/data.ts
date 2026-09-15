@@ -1,10 +1,12 @@
 export const SIZE=32, TILE=42, REPAIR_SPEED=.5, REPAIR_COST=.5, REVIVE_COST=80;
 export const PARTY_RULES={1:{interval:45,count:1},2:{interval:42,count:1.55},3:{interval:39,count:2.1}} as const;
+export const WAVE_BATCHES={early:4,late:6,gap:3} as const;
+export const MORTAR_TARGET_CAP=[8,10,12,15] as const;
 export type TowerKind='arrow'|'wall'|'mortar'|'frost'|'taunt';
 export const TOWERS:Record<TowerKind,{name:string;icon:string;color:number;cost:number;work:number;hp:number;armor:number;attack:number;interval:number;range:number;unlock:number;skill:number;desc:string}>={
  arrow:{name:'箭塔',icon:'➶',color:0xe5bd75,cost:40,work:3,hp:180,armor:5,attack:18,interval:.8,range:6,unlock:1,skill:8,desc:'稳定单体火力 · 周期穿甲'},
  wall:{name:'拒马',icon:'╳',color:0xb9a28b,cost:20,work:1.5,hp:300,armor:15,attack:0,interval:0,range:0,unlock:1,skill:6,desc:'坚固路障 · 周围绊索减速'},
- mortar:{name:'迫击炮',icon:'◉',color:0xea926d,cost:75,work:5,hp:160,armor:0,attack:42,interval:2.4,range:8,unlock:3,skill:10,desc:'范围轰炸 · 震荡炮弹眩晕'},
+ mortar:{name:'迫击炮',icon:'◉',color:0xea926d,cost:75,work:5,hp:160,armor:0,attack:42,interval:2.4,range:8,unlock:3,skill:10,desc:'范围轰炸 · 单发最多命中8～15个目标'},
  frost:{name:'寒霜塔',icon:'❄',color:0x92d6dc,cost:65,work:4,hp:180,armor:5,attack:8,interval:1.2,range:5,unlock:5,skill:7,desc:'单体冰箭 · 范围脉冲减速'},
  taunt:{name:'嘲讽塔',icon:'⚑',color:0xc4a1ed,cost:60,work:3.5,hp:420,armor:20,attack:0,interval:0,range:0,unlock:7,skill:8,desc:'高生命掩护 · 警报吸引敌人'}
 };
