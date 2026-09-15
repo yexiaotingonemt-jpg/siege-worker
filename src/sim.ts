@@ -68,7 +68,7 @@ export class Simulation{
   if(action==='build'){
    if(t){if(t.progress<1){p.task={type:'build',id:t.id};this.message(`P${playerIndex+1}继续施工，已保留之前的进度`);}else this.message('这里已有建筑：修复或升级');return;}
    const point=center(cell(p)),d=TOWERS[p.selected];
-   if(this.map.terrain(point.x,point.y)){this.message('石头、河流和泥泞地上无法施工','bad');return;}
+   if(!this.map.isBuildable(point.x,point.y)){this.message(`${this.map.effectAt(point.x,point.y).name}不可施工`,'bad');return;}
    if(this.player.level<d.unlock){this.message(`达到${d.unlock}级解锁${d.name}`,'bad');return;}
    if(this.gold<d.cost){this.message('建造点不足','bad');return;}
    if(this.enemies.some(e=>e.hp>0&&!ENEMIES[e.kind].air&&this.circleHitsBuilding(e,ENEMIES[e.kind].r,point))){this.message('敌人占据了这块地面','bad');return;}
@@ -123,7 +123,7 @@ export class Simulation{
   this.swap=null;this.message(`携带 ${ACTIVES[d.kind].name}`);this.soundEvents.push('reward');
  }
  drop(kind:RewardKind,p:Point){const taken=new Set(this.drops.map(cell));let best:Point|undefined;
-  for(let ring=0;ring<SIZE&&!best;ring++)for(let dy=-ring;dy<=ring&&!best;dy++)for(let dx=-ring;dx<=ring&&!best;dx++){if(Math.max(Math.abs(dx),Math.abs(dy))!==ring)continue;const c={x:Math.floor(p.x)+dx+.5,y:Math.floor(p.y)+dy+.5};if(!this.map.terrain(c.x,c.y)&&!taken.has(cell(c)))best=c;}
+  for(let ring=0;ring<SIZE&&!best;ring++)for(let dy=-ring;dy<=ring&&!best;dy++)for(let dx=-ring;dx<=ring&&!best;dx++){if(Math.max(Math.abs(dx),Math.abs(dy))!==ring)continue;const c={x:Math.floor(p.x)+dx+.5,y:Math.floor(p.y)+dy+.5};if(this.map.isBuildable(c.x,c.y)&&!taken.has(cell(c)))best=c;}
   if(!best){this.pendingDrops.push({kind,point:p});return;}
   this.drops.push({id:this.serial++,kind,...best,gear:isActive(kind)?{id:this.serial++,kind,ready:-100,until:-100}:undefined});this.fx('ring',best,0xefca7d,2,1);
  }
@@ -228,7 +228,7 @@ export class Simulation{
     const ci=cell(e),cp=center(ci);let best=ci,value=field[ci],recovered=false;
      if(!Number.isFinite(value)&&playerTarget){const breakKey=-200000+e.target-(d.r>.5?100000:0);let breakField=this.fields.get(breakKey);if(!breakField){const costs=new Map(this.buildings.map(t=>[cell(t),2+t.hp/15]));breakField=flow(this.map,target,this.blocked,costs,d.r);this.fields.set(breakKey,breakField);}field=breakField;value=field[ci];}
     if(!Number.isFinite(value)){let nearest=Infinity,cx=ci%SIZE,cy=Math.floor(ci/SIZE);for(let oy=-4;oy<=4;oy++)for(let ox=-4;ox<=4;ox++){const x=cx+ox,y=cy+oy;if(x<0||y<0||x>=SIZE||y>=SIZE)continue;const id=y*SIZE+x;if(!Number.isFinite(field[id]))continue;const p=center(id),gap=distance(e,p);if(gap<nearest){nearest=gap;best=id;value=field[id];recovered=true;}}}
-    if(!recovered)for(const id of [ci+1,ci-1,ci+SIZE,ci-SIZE])if(id>=0&&id<SIZE*SIZE&&(this.map.elevation[id]===this.map.elevation[ci]||this.map.ramps[id]||this.map.ramps[ci])&&field[id]<value){best=id;value=field[id];}
+    if(!recovered)for(const id of [ci+1,ci-1,ci+SIZE,ci-SIZE])if(id>=0&&id<SIZE*SIZE&&!this.map.effects[id].blocksGround&&(this.map.elevation[id]===this.map.elevation[ci]||this.map.ramps[id]||this.map.ramps[ci])&&field[id]<value){best=id;value=field[id];}
     dest=best===ci?target:center(best);const obstacle=this.towerCells.get(best);
     if(obstacle&&obstacle.id!==e.target){if(this.canHit(e,obstacle,obstacle.id)){e.target=obstacle.id;if(this.time>=e.next){e.wind=this.time+d.wind;e.next=this.time+d.interval;}continue;}}
      if(best===ci&&distance(e,cp)>.3&&!playerTarget)dest=cp;
@@ -294,7 +294,7 @@ export class Simulation{
  enemyArrow(e:Enemy,target:Point){this.projectiles.push({id:this.serial++,kind:'enemy',x:e.x,y:e.y,sx:e.x,sy:e.y,target:e.target,tx:target.x,ty:target.y,age:0,life:1.3,speed:e.kind==='boss2'?10:8,packet:{damage:e.attack,pierce:0,hunter:0,boss:0,overflow:0,source:e.id,crit:false},radius:0,stun:0,maxTargets:1});}
  updateProjectiles(dt:number){const alive:Projectile[]=[];for(const p of this.projectiles){p.age+=dt;
    if(p.kind==='mortar'){p.x=p.sx+(p.tx-p.sx)*Math.min(1,p.age/p.life);p.y=p.sy+(p.ty-p.sy)*Math.min(1,p.age/p.life);if(p.age>=p.life){const impact={x:p.tx,y:p.ty},targets=this.nearby(impact,p.radius).sort((a,b)=>distance(a,impact)-distance(b,impact)||a.id-b.id).slice(0,p.maxTargets);for(const e of targets){this.hitEnemy(e,p.packet);if(p.stun)this.stun(e,p.stun);}this.fx('blast',impact,0xe3ad75,p.radius,.5);continue;}}
-   else if(p.kind==='enemy'){const n=Math.hypot(p.tx-p.sx,p.ty-p.sy)||1;let dead=false;const steps=Math.ceil(p.speed*dt/.15);for(let j=0;j<steps;j++){p.x+=(p.tx-p.sx)/n*p.speed*dt/steps;p.y+=(p.ty-p.sy)/n*p.speed*dt/steps;if(this.map.terrain(p.x,p.y)===1){dead=true;break;}
+   else if(p.kind==='enemy'){const n=Math.hypot(p.tx-p.sx,p.ty-p.sy)||1;let dead=false;const steps=Math.ceil(p.speed*dt/.15);for(let j=0;j<steps;j++){p.x+=(p.tx-p.sx)/n*p.speed*dt/steps;p.y+=(p.ty-p.sy)/n*p.speed*dt/steps;if(this.map.effectAt(p.x,p.y).blocksSight){dead=true;break;}
      const aimed=this.playerForTarget(p.target),workers=aimed?[aimed,...this.alivePlayers().filter(w=>w!==aimed)]:this.alivePlayers(),victim=!this.invincible&&workers.find(w=>distance(p,w)<.3);if(victim){this.damagePlayer(p.packet.damage,victim);dead=true;break;}
      const t=this.buildings.find(t=>t.hp>0&&Math.abs(t.x-p.x)<.5&&Math.abs(t.y-p.y)<.5&&!(aimed&&cell(t)===cell(aimed)));if(t){this.damageBuilding(t,p.packet.damage);dead=true;break;}
     }if(dead)continue;

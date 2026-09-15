@@ -40,7 +40,7 @@ export class BattleScene extends Phaser.Scene{
  drawMap(){const g=this.world,map=this.sim.map,size=SIZE*TILE;g.clear();
   const texture=this.textures.createCanvas('terrain-map',size,size);if(!texture)return;const ctx=texture.getContext(),atlas=this.textures.get('terrain-atlas').getSourceImage() as HTMLImageElement,ramp=this.textures.get('terrain-ramp').getSourceImage() as HTMLImageElement;ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
   const rowFor=(type:number,high:boolean)=>type===1?4:type===2?3:type===3?2:type===4?5:high?1:0;
-  for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const id=y*SIZE+x,row=rowFor(map.tiles[id],!!map.elevation[id]),variant=(x*17+y*29+row*7)&3;ctx.drawImage(atlas,variant*256,row*256,256,256,x*TILE-.25,y*TILE-.25,TILE+.5,TILE+.5);}
+  for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const id=y*SIZE+x,row=rowFor(map.tiles[id],!!map.elevation[id]),variant=map.variants[id];ctx.drawImage(atlas,variant*256,row*256,256,256,x*TILE-.25,y*TILE-.25,TILE+.5,TILE+.5);}
   // One approved two-cell timber sprite spans each complete high-to-low slope pair.
   const drawn=new Set<number>();for(let i=0;i<map.ramps.length;i++)if(map.ramps[i]&&map.elevation[i]&&!drawn.has(i)){let pair=-1;for(const off of [-1,1,-SIZE,SIZE]){const ni=i+off;if(map.ramps[ni]&&map.elevation[ni]!==map.elevation[i]){pair=ni;break;}}if(pair<0)continue;drawn.add(i);drawn.add(pair);const hx=i%SIZE,hy=Math.floor(i/SIZE),lx=pair%SIZE,ly=Math.floor(pair/SIZE),cx=(hx+lx+1)*TILE/2,cy=(hy+ly+1)*TILE/2,angle=Math.atan2(ly-hy,lx-hx)-Math.PI/2;ctx.save();ctx.translate(cx,cy);ctx.rotate(angle);ctx.drawImage(ramp,-TILE/2,-TILE,TILE,TILE*2);ctx.restore();}
   texture.refresh();this.mapArt=this.add.image(0,0,'terrain-map').setOrigin(0).setDepth(-1);
