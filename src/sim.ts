@@ -1,4 +1,4 @@
-import {ACTIVES,BOSS_WAVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,MINION_REWARD_DROP_CHANCE,MORTAR_TARGET_CAP,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,REVIVE_COST,SIZE,TOWERS,UPGRADE,WAVE_BATCHES,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
+import {ACTIVES,BOSS_WAVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,MINION_REWARD_DROP_CHANCE,MORTAR_TARGET_CAP,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,REVIVE_COST,SIZE,TOTAL_WAVES,TOWERS,UPGRADE,WAVE_BATCHES,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
 import {cell,center,distance,flow,random,WorldMap,type Point} from './map';
 export interface Gear{id:number;kind:ActiveKind;ready:number;until:number}
 export interface Building extends Point{id:number;owner:number;kind:TowerKind;level:number;hp:number;maxHp:number;progress:number;armor:number;attack:number;range:number;interval:number;skillInterval:number;shot:number;skill:number;aim:number;wind:number;skillAim:number;skillWind:number;shield:number;shieldUntil:number;shieldSource:number;damage:number}
@@ -49,9 +49,9 @@ export class Simulation{
  start(){this.state='playing';this.message('敌军将在10秒后抵达。全队共享建造点。');}
  workerSpawn(){const origin=this.partyCenter(),valid=(p:Point)=>this.map.canStand(p.x,p.y,.25)&&this.players.every(w=>distance(w,p)>.65)&&this.enemies.every(e=>distance(e,p)>ENEMIES[e.kind].r+.5);for(let ring=1;ring<12;ring++)for(let i=0;i<ring*8;i++){const a=i/(ring*8)*Math.PI*2,p=center(cell({x:origin.x+Math.cos(a)*ring,y:origin.y+Math.sin(a)*ring}));if(valid(p))return p;}return center(cell(origin));}
  joinPlayer(){if(this.state!=='playing'||this.playerCount>=3)return false;const oldCount=this.playerCount,oldInterval=this.waveInterval,next=(oldCount+1) as 2|3,spawn=this.workerSpawn(),colors=[0xf0c563,0x75c8d0,0xd29be8],p:Worker={id:-(next),...spawn,hp:100,maxHp:100,level:this.player.level,xp:this.player.xp,gold:this.gold,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[next-1]};this.players.push(p);this.playerCount=next;this.waveInterval=PARTY_RULES[next].interval;const ratio=this.waveInterval/oldInterval,current=this.wave;
-  if(current===0){for(let wave=1;wave<=20;wave++){this.batches.filter(b=>b.wave===wave).sort((a,b)=>a.time-b.time).forEach((b,i)=>{b.time=(wave-1)*this.waveInterval+i*WAVE_BATCHES.gap;b.point=undefined;b.retry=-100;});}}
+  if(current===0){for(let wave=1;wave<=TOTAL_WAVES;wave++){this.batches.filter(b=>b.wave===wave).sort((a,b)=>a.time-b.time).forEach((b,i)=>{b.time=(wave-1)*this.waveInterval+i*WAVE_BATCHES.gap;b.point=undefined;b.retry=-100;});}}
   else for(const b of this.batches)if(!b.done&&b.wave>current){b.time=this.time+Math.max(2,b.time-this.time)*ratio;b.point=undefined;b.retry=-100;}
-  for(let wave=Math.max(1,current+1);wave<=20;wave++){const rows=this.waveBatches(wave,next),future=this.batches.filter(b=>!b.done&&b.wave===wave).sort((a,b)=>a.time-b.time);for(let i=0;i<Math.min(rows.length,future.length);i++)future[i].kinds=rows[i];}
+  for(let wave=Math.max(1,current+1);wave<=TOTAL_WAVES;wave++){const rows=this.waveBatches(wave,next),future=this.batches.filter(b=>!b.done&&b.wave===wave).sort((a,b)=>a.time-b.time);for(let i=0;i<Math.min(rows.length,future.length);i++)future[i].kinds=rows[i];}
   if(current>0){const oldScale=PARTY_RULES[oldCount].count,newScale=PARTY_RULES[next].count,kinds:EnemyKind[]=[];WAVES[current-1].forEach((n,k)=>{const add=Math.max(0,Math.round(n*newScale)-Math.round(n*oldScale));for(let i=0;i<add;i++)kinds.push(NORMAL[k]);});if(kinds.length)this.batches.push({time:this.time+2,wave:current,kinds,done:false,retry:-100});}
   this.focusPlayer=next-1;this.dirty=true;this.message(current>0?`P${next}加入 · 波次改为${this.waveInterval}秒，当前波增援即将抵达`:`P${next}加入 · 波次改为${this.waveInterval}秒，敌军数量已提高`,'wave');this.fx('ring',p,p.color,2,1);return true;
  }
@@ -135,7 +135,7 @@ export class Simulation{
  tick(dt:number){if(this.state!=='playing'||this.paused)return;
   this.time+=dt;this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
   this.updatePlayers(dt);for(const t of this.buildings)this.attributes(t);
-  const wave=this.time<0?0:this.batches.length?this.batches.reduce((n,b)=>this.time>=b.time?Math.max(n,b.wave):n,0):this.wave;if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
+  const wave=this.time<0?0:this.batches.length?this.batches.reduce((n,b)=>this.time>=b.time?Math.max(n,b.wave):n,0):this.wave;if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / ${TOTAL_WAVES} 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
   for(let i=0;i<this.batches.length;i++){const b=this.batches[i];if(b.done||this.time<b.time-2||this.time<b.retry)continue;
    if(!b.point)b.point=this.spawnPoint(b.wave,i);if(this.time<b.time)continue;
    if(!b.point||this.alivePlayers().some(w=>distance(b.point!,w)<6)||!this.map.canStand(b.point.x,b.point.y,.65,this.blocked)){b.point=this.spawnPoint(b.wave,i);b.retry=this.time+2;continue;}
@@ -145,7 +145,7 @@ export class Simulation{
   this.rebuildBuckets();this.updateFields();this.updateTowers(dt);this.updateEnemies(dt);this.updateZones(dt);this.resolveEnemyCollisions();this.updateProjectiles(dt);this.cleanDead();
   if(this.alivePlayers().length===0&&!this.god){this.state='lost';for(const p of this.players)p.task=null;this.soundEvents.push('lost');return;}
   this.updateTasks(dt);
-  if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===20){this.state='won';for(const p of this.players)p.task=null;this.soundEvents.push('won');}
+  if(this.batches.every(b=>b.done)&&this.enemies.length===0&&this.wave===TOTAL_WAVES){this.state='won';for(const p of this.players)p.task=null;this.soundEvents.push('won');}
  }
  networkState(compact=false):NetworkState{
   const enemies=compact?this.enemies.map(({id,kind,x,y,hp,maxHp,target,wind,slowUntil,stunUntil,tauntUntil,flash})=>({id,kind,x,y,hp,maxHp,target,wind,slowUntil,stunUntil,tauntUntil,flash} as Enemy)):this.enemies;
@@ -233,7 +233,7 @@ export class Simulation{
      if(best===ci&&distance(e,cp)>.3&&!playerTarget)dest=cp;
    }
    let dx=dest.x-e.x,dy=dest.y-e.y,n=Math.hypot(dx,dy);if(n>.001){dx/=n;dy/=n;const slow=e.slowUntil>this.time?e.slow:1;let foam=1;for(const z of this.zones)if(z.kind==='foam'&&z.until>this.time&&distance(e,z)<=z.radius)foam=Math.min(foam,d.boss?.75:.5);
-    const speed=d.speed*(e.kind==='boss4'&&e.hp/e.maxHp<.4?1.15:1)*Math.max(.4,Math.min(slow,foam))*(d.air?1:this.map.moveFactor(e.x,e.y));
+    const speed=d.speed*((e.kind==='boss4'||e.kind==='boss5')&&e.hp/e.maxHp<.4?1.15:1)*Math.max(.4,Math.min(slow,foam))*(d.air?1:this.map.moveFactor(e.x,e.y));
     // Soft steering creates room before the hard circular colliders touch.
     let sx=0,sy=0;for(const other of this.nearby(e,1.35)){if(other.id===e.id||!!ENEMIES[other.kind].air!==!!d.air)continue;const gap=distance(e,other),wanted=d.r+ENEMIES[other.kind].r+.08;if(gap>0&&gap<wanted){sx+=(e.x-other.x)/gap*(wanted-gap);sy+=(e.y-other.y)/gap*(wanted-gap);}}
     const sep=Math.hypot(sx,sy);if(sep>.35){sx*=.35/sep;sy*=.35/sep;}
@@ -245,7 +245,7 @@ export class Simulation{
  }
  bossSkill(e:Enemy){const k=e.kind==='boss1'?'smash':e.kind==='boss2'?'rain':e.kind==='boss3'?'charge':(['smash','rain','charge'] as const)[e.sequence%3];const range=k==='smash'?8:k==='rain'?10:6;
   const target=this.alivePlayers().filter(p=>distance(e,p)<=range&&(k!=='charge'||this.map.los(e,p))).sort((a,b)=>distance(e,a)-distance(e,b))[0];if(!target)return false;
-  const wind=k==='smash'?1.2:k==='rain'?1.5:1,cycle=e.kind==='boss4'?(e.hp/e.maxHp<.4?5:6):(k==='smash'?8:k==='rain'?9:10);e.skillAt=this.time+cycle;e.sequence++;e.wind=0;
+  const wind=k==='smash'?1.2:k==='rain'?1.5:1,cycle=e.kind==='boss4'||e.kind==='boss5'?(e.hp/e.maxHp<.4?5:6):(k==='smash'?8:k==='rain'?9:10);e.skillAt=this.time+cycle;e.sequence++;e.wind=0;
   const n=distance(e,target)||1;this.zones.push({id:this.serial++,kind:k,x:k==='charge'?e.x:target.x,y:k==='charge'?e.y:target.y,radius:2,start:this.time+wind,until:this.time+wind+(k==='smash'?.1:k==='rain'?3:.75),next:this.time+wind+1,source:target.id,owner:e.id,dx:(target.x-e.x)/n,dy:(target.y-e.y)/n,travel:0,fired:false});this.soundEvents.push('warning');return true;
  }
  updateZones(dt:number){for(const z of this.zones){if(z.until<=this.time&&!(z.kind==='rain'&&z.next<=z.until&&z.next<=this.time))continue;if(z.kind==='foam')continue;

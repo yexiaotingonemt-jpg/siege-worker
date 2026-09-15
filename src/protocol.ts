@@ -1,4 +1,4 @@
-import {SIZE} from './data';
+import {SIZE,TOTAL_WAVES} from './data';
 
 const COMMANDS=new Set(['context','build','repair','upgrade','pickup','cancel','active0','active1','exchange:0','exchange:1']);
 const STATES=new Set(['menu','playing','won','lost']);
@@ -33,5 +33,5 @@ export function validNetworkState(value:unknown,requiredPlayers=1,lastTime?:numb
  const buildings=value.buildings;if(!array(buildings,SIZE*SIZE)||!buildings.every(building))return false;
  const limits:[string,number,boolean][]=[['enemies',3000,true],['projectiles',6000,true],['zones',256,true],['drops',128,true],['visuals',1200,true],['batches',128,false],['messages',32,false],['gear',2,false]];
  for(const [key,max,hasPoint] of limits){const list=value[key];if(!array(list,max)||(hasPoint&&!list.every(point)))return false;}
- return finite(value.wave)&&value.wave>=0&&value.wave<=20&&finite(value.waveInterval)&&value.waveInterval>=20&&value.waveInterval<=60;
+ return finite(value.wave)&&value.wave>=0&&value.wave<=TOTAL_WAVES&&finite(value.waveInterval)&&value.waveInterval>=20&&value.waveInterval<=60;
 }
