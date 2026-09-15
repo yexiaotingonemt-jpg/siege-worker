@@ -1,4 +1,4 @@
-import {ACTIVES,BUFFS,BUILD_POINT_REGEN,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,REVIVE_COST,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
+import {ACTIVES,BUFFS,DMG_SCALE,ENEMIES,HP_SCALE,KEYS,NORMAL,PARTY_RULES,REPAIR_COST,REPAIR_SPEED,REVIVE_COST,SIZE,TOWERS,UPGRADE,WAVES,XP,isActive,type ActiveKind,type BuffKind,type EnemyKind,type RewardKind,type TowerKind} from './data';
 import {cell,center,distance,flow,random,WorldMap,type Point} from './map';
 export interface Gear{id:number;kind:ActiveKind;ready:number;until:number}
 export interface Building extends Point{id:number;owner:number;kind:TowerKind;level:number;hp:number;maxHp:number;progress:number;armor:number;attack:number;range:number;interval:number;skillInterval:number;shot:number;skill:number;aim:number;wind:number;skillAim:number;skillWind:number;shield:number;shieldUntil:number;shieldSource:number;damage:number}
@@ -9,17 +9,17 @@ export interface Zone extends Point{id:number;kind:'foam'|'smash'|'rain'|'charge
 export interface Drop extends Point{id:number;kind:RewardKind;gear?:Gear}
 export interface Visual extends Point{kind:string;color:number;size:number;age:number;life:number;text?:string;tx?:number;ty?:number}
 export interface Batch{time:number;wave:number;kinds:EnemyKind[];point?:Point;done:boolean;retry:number}
-export interface NetworkState{time:number;state:'menu'|'playing'|'won'|'lost';paused:boolean;wave:number;playerCount:1|2|3;waveInterval:number;players:Worker[];buildings:Building[];enemies:Enemy[];projectiles:Projectile[];zones:Zone[];drops:Drop[];visuals:Visual[];gear:(Gear|null)[];buffs:Partial<Record<BuffKind,number>>;shared:Partial<Record<ActiveKind,number>>;batches:Batch[];messages:{text:string;until:number;type:string}[];swap:number|null;serial:number;stats:Simulation['stats'];god:boolean;practice:boolean}
+export interface NetworkState{time:number;state:'menu'|'playing'|'won'|'lost';paused:boolean;wave:number;playerCount:1|2|3;waveInterval:number;gold:number;players:Worker[];buildings:Building[];enemies:Enemy[];projectiles:Projectile[];zones:Zone[];drops:Drop[];visuals:Visual[];gear:(Gear|null)[];buffs:Partial<Record<BuffKind,number>>;shared:Partial<Record<ActiveKind,number>>;batches:Batch[];messages:{text:string;until:number;type:string}[];swap:number|null;serial:number;stats:Simulation['stats'];god:boolean;practice:boolean}
 type Task={type:'build'|'repair';id:number}|null;
 export interface Worker extends Point{id:number;hp:number;maxHp:number;level:number;xp:number;gold:number;hurtUntil:number;input:Point;task:Task;selected:TowerKind;color:number}
 export class Simulation{
- map=new WorldMap(); rand=random(7819); time=-10;state:'menu'|'playing'|'won'|'lost'='menu'; paused=false; wave=0;
+ map=new WorldMap(); rand=random(7819); time=-10;state:'menu'|'playing'|'won'|'lost'='menu'; paused=false; wave=0;gold=120;
  players:Worker[];player:Worker;focusPlayer=0;playerCount:1|2|3;waveInterval:number;
  buildings:Building[]=[];enemies:Enemy[]=[];projectiles:Projectile[]=[];zones:Zone[]=[];drops:Drop[]=[];visuals:Visual[]=[];
  gear:(Gear|null)[]=[null,null];buffs:Partial<Record<BuffKind,number>>={};shared:Partial<Record<ActiveKind,number>>={};
  batches:Batch[]=[];rewardPool:RewardKind[]=[...Object.keys(ACTIVES),...Object.keys(BUFFS)] as RewardKind[];pendingDrops:{kind:RewardKind;point:Point}[]=[];
  messages:{text:string;until:number;type:string}[]=[];swap:number|null=null;serial=1;
- stats={kills:0,built:0,lost:0,repaired:0,income:0,passive:0,spent:0,actives:0,damage:{arrow:0,wall:0,mortar:0,frost:0,taunt:0} as Record<TowerKind,number>};
+ stats={kills:0,built:0,lost:0,repaired:0,income:0,spent:0,actives:0,damage:{arrow:0,wall:0,mortar:0,frost:0,taunt:0} as Record<TowerKind,number>};
  blocked=new Set<number>();towerCells=new Map<number,Building>();fields=new Map<number,Float32Array>();fieldAt=-100;fieldCell='';dirty=true;
  buckets=new Map<number,Enemy[]>();god=false;practice=false;soundEvents:string[]=[];
  networkTracks:{entity:Point;x:number;y:number}[]=[];networkBlend=0;lastNetworkTime:number|undefined;
@@ -46,9 +46,9 @@ export class Simulation{
  reviveTarget(worker:Worker|number=this.focused){const p=typeof worker==='number'?this.players[worker]:worker;return p&&this.players.filter(w=>w!==p&&w.hp<=0&&distance(w,p)<=.9).sort((a,b)=>distance(a,p)-distance(b,p))[0];}
  message(text:string,type='info'){this.messages.push({text,type,until:this.time+3.5});if(this.messages.length>4)this.messages.shift();}
  fx(kind:string,p:Point,color=0xeec274,size=1,life=.5,text?:string){this.visuals.push({...p,kind,color,size,life,age:0,text});}
- start(){this.state='playing';this.message('敌军将在10秒后抵达。每名佣工拥有独立建造点。');}
+ start(){this.state='playing';this.message('敌军将在10秒后抵达。全队共享建造点。');}
  workerSpawn(){const origin=this.partyCenter(),valid=(p:Point)=>this.map.canStand(p.x,p.y,.25)&&this.players.every(w=>distance(w,p)>.65)&&this.enemies.every(e=>distance(e,p)>ENEMIES[e.kind].r+.5);for(let ring=1;ring<12;ring++)for(let i=0;i<ring*8;i++){const a=i/(ring*8)*Math.PI*2,p=center(cell({x:origin.x+Math.cos(a)*ring,y:origin.y+Math.sin(a)*ring}));if(valid(p))return p;}return center(cell(origin));}
- joinPlayer(){if(this.state!=='playing'||this.playerCount>=3)return false;const oldCount=this.playerCount,oldInterval=this.waveInterval,next=(oldCount+1) as 2|3,spawn=this.workerSpawn(),colors=[0xf0c563,0x75c8d0,0xd29be8],p:Worker={id:-(next),...spawn,hp:100,maxHp:100,level:this.player.level,xp:this.player.xp,gold:120,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[next-1]};this.players.push(p);this.playerCount=next;this.waveInterval=PARTY_RULES[next].interval;const ratio=this.waveInterval/oldInterval,current=this.wave;
+ joinPlayer(){if(this.state!=='playing'||this.playerCount>=3)return false;const oldCount=this.playerCount,oldInterval=this.waveInterval,next=(oldCount+1) as 2|3,spawn=this.workerSpawn(),colors=[0xf0c563,0x75c8d0,0xd29be8],p:Worker={id:-(next),...spawn,hp:100,maxHp:100,level:this.player.level,xp:this.player.xp,gold:this.gold,hurtUntil:0,input:{x:0,y:0},task:null,selected:'arrow',color:colors[next-1]};this.players.push(p);this.playerCount=next;this.waveInterval=PARTY_RULES[next].interval;const ratio=this.waveInterval/oldInterval,current=this.wave;
   if(current===0){for(let wave=1;wave<=20;wave++){const gap=wave<=5?6:5;this.batches.filter(b=>b.wave===wave).sort((a,b)=>a.time-b.time).forEach((b,i)=>{b.time=(wave-1)*this.waveInterval+i*gap;b.point=undefined;b.retry=-100;});}}
   else for(const b of this.batches)if(!b.done&&b.wave>current){b.time=this.time+Math.max(2,b.time-this.time)*ratio;b.point=undefined;b.retry=-100;}
   for(let wave=Math.max(1,current+1);wave<=20;wave++){const rows=this.waveBatches(wave,next),future=this.batches.filter(b=>!b.done&&b.wave===wave).sort((a,b)=>a.time-b.time);for(let i=0;i<Math.min(rows.length,future.length);i++)future[i].kinds=rows[i];}
@@ -63,16 +63,16 @@ export class Simulation{
   if(action==='cancel'){p.task=null;this.swap=null;return;}
   if(action==='active0'||action==='active1'){this.use(action==='active0'?0:1,playerIndex);return;}
   if(action==='pickup'){this.pickup(playerIndex);return;}
-  if(action==='context'){const fallen=this.reviveTarget(p);if(fallen){if(p.gold<REVIVE_COST){this.message(`复活需要${REVIVE_COST}建造点`,'bad');return;}this.spend(REVIVE_COST,p);fallen.hp=fallen.maxHp*.5;fallen.hurtUntil=this.time+1;fallen.input={x:0,y:0};fallen.task=null;this.fx('ring',fallen,fallen.color,2,1);this.soundEvents.push('level');this.message(`P${playerIndex+1}复活了P${this.players.indexOf(fallen)+1}`);return;}const here=this.atPlayer(p);if(!here){this.command('build',playerIndex);return;}if(here.progress<1){this.command('build',playerIndex);return;}if(here.hp<here.maxHp-.01){this.command('repair',playerIndex);return;}this.message('脚下建筑无需修理');return;}
+  if(action==='context'){const fallen=this.reviveTarget(p);if(fallen){if(this.gold<REVIVE_COST){this.message(`复活需要${REVIVE_COST}建造点`,'bad');return;}this.spend(REVIVE_COST);fallen.hp=fallen.maxHp*.5;fallen.hurtUntil=this.time+1;fallen.input={x:0,y:0};fallen.task=null;this.fx('ring',fallen,fallen.color,2,1);this.soundEvents.push('level');this.message(`P${playerIndex+1}复活了P${this.players.indexOf(fallen)+1}`);return;}const here=this.atPlayer(p);if(!here){this.command('build',playerIndex);return;}if(here.progress<1){this.command('build',playerIndex);return;}if(here.hp<here.maxHp-.01){this.command('repair',playerIndex);return;}this.message('脚下建筑无需修理');return;}
   const t=this.atPlayer(p);
   if(action==='build'){
    if(t){if(t.progress<1){p.task={type:'build',id:t.id};this.message(`P${playerIndex+1}继续施工，已保留之前的进度`);}else this.message('这里已有建筑：修复或升级');return;}
    const point=center(cell(p)),d=TOWERS[p.selected];
    if(this.map.terrain(point.x,point.y)){this.message('石头、河流和泥泞地上无法施工','bad');return;}
    if(this.player.level<d.unlock){this.message(`达到${d.unlock}级解锁${d.name}`,'bad');return;}
-   if(p.gold<d.cost){this.message('建造点不足','bad');return;}
+   if(this.gold<d.cost){this.message('建造点不足','bad');return;}
    if(this.enemies.some(e=>e.hp>0&&!ENEMIES[e.kind].air&&this.circleHitsBuilding(e,ENEMIES[e.kind].r,point))){this.message('敌人占据了这块地面','bad');return;}
-   this.spend(d.cost,p);const newT=this.addBuilding(p.selected,point.x,point.y,false,p.id);p.task={type:'build',id:newT.id};this.soundEvents.push('build');
+   this.spend(d.cost);const newT=this.addBuilding(p.selected,point.x,point.y,false,p.id);p.task={type:'build',id:newT.id};this.soundEvents.push('build');
   }
   if(action==='repair'){
    if(!t||t.progress<1){this.message('站到已完成建筑上才能修复','bad');return;}
@@ -82,11 +82,12 @@ export class Simulation{
    if(!t||t.progress<1){this.message('站到已完成建筑上才能升级','bad');return;}
    if(t.level>=4){this.message('已达到最高等级');return;}
    const need=[0,4,8,11][t.level];if(this.player.level<need){this.message(`角色${need}级解锁下一级建筑`,'bad');return;}
-   const fee=Math.ceil(TOWERS[t.kind].cost*UPGRADE[t.level]);if(p.gold<fee){this.message('升级建造点不足','bad');return;}
-   this.spend(fee,p);t.level++;this.attributes(t);this.fx('ring',t,0xf6d983,1.4,.6);this.soundEvents.push('upgrade');this.message(`${TOWERS[t.kind].name}升至${t.level}级`);
+   const fee=Math.ceil(TOWERS[t.kind].cost*UPGRADE[t.level]);if(this.gold<fee){this.message('升级建造点不足','bad');return;}
+   this.spend(fee);t.level++;this.attributes(t);this.fx('ring',t,0xf6d983,1.4,.6);this.soundEvents.push('upgrade');this.message(`${TOWERS[t.kind].name}升至${t.level}级`);
   }
  }
- spend(n:number,worker=this.focused){worker.gold=Math.max(0,worker.gold-n);this.stats.spent+=n;}
+ setGold(n:number){this.gold=Math.max(0,n);for(const p of this.players)p.gold=this.gold;}
+ spend(n:number){this.setGold(this.gold-n);this.stats.spent+=n;}
  attributes(t:Building){if(t.progress<1)return;const d=TOWERS[t.kind],near=this.nearPlayer(t,5);
   const hp=d.hp*HP_SCALE[t.level-1]*(1+(near?.25*this.b('life'):0));t.hp=t.hp/t.maxHp*hp;t.maxHp=hp;
   t.armor=d.armor+5*(t.level-1)+(near?15*this.b('armor'):0);t.attack=d.attack*DMG_SCALE[t.level-1]*(1+(near?.25*this.b('power'):0));
@@ -100,8 +101,8 @@ export class Simulation{
   if(g.kind==='instant'){
    if(!here||here.progress<1||here.hp>=here.maxHp-.001){this.message('需要脚下有受损的完工建筑','bad');return;}
    const heal=Math.min(here.maxHp*.35,here.maxHp-here.hp),fee=heal/here.maxHp*TOWERS[here.kind].cost*REPAIR_COST;
-   if(p.gold<fee){this.message(`修复需要${fee.toFixed(1)}建造点`,'bad');return;}
-   this.spend(fee,p);here.hp+=heal;this.stats.repaired+=heal;this.fx('ring',here,0x9cdfb9,1.5);
+   if(this.gold<fee){this.message(`修复需要${fee.toFixed(1)}建造点`,'bad');return;}
+   this.spend(fee);here.hp+=heal;this.stats.repaired+=heal;this.fx('ring',here,0x9cdfb9,1.5);
   }
   g.ready=this.time+d.cd;g.until=this.time+d.duration;this.shared[g.kind]=g.ready;this.stats.actives++;this.soundEvents.push('active');
   if(g.kind==='shield')for(const t of near){t.shield=Math.max(t.shield,t.maxHp*.3);t.shieldUntil=g.until;t.shieldSource=g.id;}
@@ -131,7 +132,7 @@ export class Simulation{
  spawnPoint(wave:number,batch:number){const origin=this.partyCenter();for(let k=0;k<180;k++){const side=(wave+batch)%4,angle=(side*Math.PI/2)+(this.rand()-.5)*1.3+(k>70?this.rand()*Math.PI*2:0),radius=10+this.rand()*3;const p=center(cell({x:Math.max(2,Math.min(SIZE-3,origin.x+Math.cos(angle)*radius)),y:Math.max(2,Math.min(SIZE-3,origin.y+Math.sin(angle)*radius))}));if(this.alivePlayers().every(w=>distance(p,w)>=8)&&this.map.canStand(p.x,p.y,.65,this.blocked))return p;}return undefined;}
  spawn(kind:EnemyKind,p:Point,wave=this.wave){const d=ENEMIES[kind],scale=d.boss?1:1+.065*(wave-1);if(!this.enemies.length)this.buckets.clear();const point=this.enemySpawnPoint(p,d.r,!!d.air),initial=this.nearestPlayer(point,true);const e:Enemy={...point,id:this.serial++,kind,wave,hp:d.hp*scale,maxHp:d.hp*scale,attack:d.attack*(d.boss?1:1+.025*(wave-1)),target:initial?.id??-1,next:this.time,wind:0,skillAt:this.time+(kind==='boss2'?5:4),sequence:0,slow:1,slowUntil:0,stunUntil:0,stunImmune:0,taunt:0,tauntUntil:0,tauntImmune:0,tauntSource:0,decision:0,flash:0};this.enemies.push(e);this.addBucket(e);if(d.boss){this.message(`${d.name} 已进入战场`,'boss');this.soundEvents.push('boss');}return e;}
  tick(dt:number){if(this.state!=='playing'||this.paused)return;
-  const previousTime=this.time;this.time+=dt;const combatSeconds=Math.max(0,this.time)-Math.max(0,previousTime);if(combatSeconds>0){const supply=combatSeconds*BUILD_POINT_REGEN;for(const p of this.players)p.gold+=supply;this.stats.passive+=supply*this.playerCount;}this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
+  this.time+=dt;this.messages=this.messages.filter(m=>m.until>this.time);this.visuals=this.visuals.filter(v=>(v.age+=dt)<v.life);
   this.updatePlayers(dt);for(const t of this.buildings)this.attributes(t);
   const wave=this.time<0?0:this.batches.length?this.batches.reduce((n,b)=>this.time>=b.time?Math.max(n,b.wave):n,0):this.wave;if(wave!==this.wave){this.wave=wave;this.message(`第 ${wave} / 20 波 · ${this.playerCount}人工地压力`,'wave');this.soundEvents.push('wave');}
   for(let i=0;i<this.batches.length;i++){const b=this.batches[i];if(b.done||this.time<b.time-2||this.time<b.retry)continue;
@@ -148,9 +149,9 @@ export class Simulation{
  networkState(compact=false):NetworkState{
   const enemies=compact?this.enemies.map(({id,kind,x,y,hp,maxHp,target,wind,slowUntil,stunUntil,tauntUntil,flash})=>({id,kind,x,y,hp,maxHp,target,wind,slowUntil,stunUntil,tauntUntil,flash} as Enemy)):this.enemies;
   const projectiles=compact?this.projectiles.map(({id,kind,x,y,target,tx,ty,age,life})=>({id,kind,x,y,target,tx,ty,age,life} as Projectile)):this.projectiles;
-  return{time:this.time,state:this.state,paused:this.paused,wave:this.wave,playerCount:this.playerCount,waveInterval:this.waveInterval,players:this.players,buildings:this.buildings,enemies,projectiles,zones:this.zones,drops:this.drops,visuals:this.visuals,gear:this.gear,buffs:this.buffs,shared:this.shared,batches:compact?this.batches.map(b=>({...b,kinds:[]})):this.batches,messages:this.messages,swap:this.swap,serial:this.serial,stats:this.stats,god:this.god,practice:this.practice};
+  return{time:this.time,state:this.state,paused:this.paused,wave:this.wave,playerCount:this.playerCount,waveInterval:this.waveInterval,gold:this.gold,players:this.players,buildings:this.buildings,enemies,projectiles,zones:this.zones,drops:this.drops,visuals:this.visuals,gear:this.gear,buffs:this.buffs,shared:this.shared,batches:compact?this.batches.map(b=>({...b,kinds:[]})):this.batches,messages:this.messages,swap:this.swap,serial:this.serial,stats:this.stats,god:this.god,practice:this.practice};
  }
- applyNetworkState(state:NetworkState,localSlot=0,lightweight=false){this.time=state.time;this.state=state.state;this.paused=state.paused;this.wave=state.wave;this.playerCount=state.playerCount;this.waveInterval=state.waveInterval;this.players=state.players;this.player=this.players[0];this.buildings=state.buildings;this.enemies=state.enemies;this.projectiles=state.projectiles;this.zones=state.zones;this.drops=state.drops;this.visuals=state.visuals;this.gear=state.gear;this.buffs=state.buffs;this.shared=state.shared;this.batches=state.batches;this.messages=state.messages;this.swap=state.swap;this.serial=state.serial;this.stats=state.stats;this.god=state.god;this.practice=state.practice;this.focusPlayer=Math.min(localSlot,this.players.length-1);this.pendingDrops=[];this.soundEvents=[];this.reindex();if(lightweight)this.buckets.clear();else this.rebuildBuckets();this.fields.clear();this.fieldAt=-100;this.networkTracks=[];}
+ applyNetworkState(state:NetworkState,localSlot=0,lightweight=false){this.time=state.time;this.state=state.state;this.paused=state.paused;this.wave=state.wave;this.playerCount=state.playerCount;this.waveInterval=state.waveInterval;this.players=state.players;this.player=this.players[0];this.setGold(state.gold??this.player.gold);this.buildings=state.buildings;this.enemies=state.enemies;this.projectiles=state.projectiles;this.zones=state.zones;this.drops=state.drops;this.visuals=state.visuals;this.gear=state.gear;this.buffs=state.buffs;this.shared=state.shared;this.batches=state.batches;this.messages=state.messages;this.swap=state.swap;this.serial=state.serial;this.stats=state.stats;this.god=state.god;this.practice=state.practice;this.focusPlayer=Math.min(localSlot,this.players.length-1);this.pendingDrops=[];this.soundEvents=[];this.reindex();if(lightweight)this.buckets.clear();else this.rebuildBuckets();this.fields.clear();this.fieldAt=-100;this.networkTracks=[];}
  reconcileNetworkState(state:NetworkState,localSlot=0){
   const shown=new Map<string,Point>(),remember=(name:string,list:(Point&{id:number})[])=>{for(const item of list)shown.set(name+item.id,{x:item.x,y:item.y});};remember('p',this.players);remember('e',this.enemies);remember('r',this.projectiles);remember('z',this.zones);
   const predicted=this.players[localSlot],position=predicted&&{x:predicted.x,y:predicted.y,input:{...predicted.input},selected:predicted.selected},authoritative=state.players[localSlot],error=position&&authoritative?Math.hypot(position.x-authoritative.x,position.y-authoritative.y):0,previousTime=this.lastNetworkTime;
@@ -174,7 +175,7 @@ export class Simulation{
  }if(e)this.relocateBucket(e,oldBucket);}
  updateTasks(dt:number){for(const p of this.players){if(!p.task||p.hp<=0)continue;const task=p.task,t=this.buildings.find(t=>t.id===task.id);if(!t||cell(t)!==cell(p)){p.task=null;continue;}
   const d=TOWERS[t.kind];if(task.type==='build'){t.progress=Math.min(1,t.progress+dt*this.buildRate/d.work);if(t.progress>=1){const ratio=t.hp/t.maxHp;t.maxHp=d.hp;t.hp=ratio*d.hp;this.attributes(t);for(const w of this.players)if(w.task?.id===t.id)w.task=null;this.stats.built++;this.fx('ring',t,d.color,1.5,.6);this.message(d.name+' 建造完成');this.soundEvents.push('complete');}}
-  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRateFor(p)/d.work*dt);if(heal<.0001){p.task=null;continue;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(p.gold+1e-8<fee){p.task=null;this.message(`P${this.players.indexOf(p)+1}建造点不足，修复暂停`,'bad');continue;}this.spend(fee,p);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)for(const w of this.players)if(w.task?.id===t.id)w.task=null;}
+  else{let heal=Math.min(t.maxHp-t.hp,t.maxHp*this.repairRateFor(p)/d.work*dt);if(heal<.0001){p.task=null;continue;}const fee=heal/t.maxHp*d.cost*REPAIR_COST;if(this.gold+1e-8<fee){p.task=null;this.message('队伍建造点不足，修复暂停','bad');continue;}this.spend(fee);t.hp+=heal;this.stats.repaired+=heal;if(t.hp>=t.maxHp-.0001)for(const w of this.players)if(w.task?.id===t.id)w.task=null;}
   }
  }
  bucketKey(p:Point){return Math.floor(p.x/3)+Math.floor(p.y/3)*24;}
@@ -302,7 +303,7 @@ export class Simulation{
  }
  hitEnemy(e:Enemy,p:Packet,secondary=false){if(e.hp<=0||p.damage<=0)return;const d=ENEMIES[e.kind],bonus=secondary?1:1+(d.cavalry?p.hunter:0)+(d.boss?p.boss:0);const hit=Math.max(1,p.damage*bonus*100/(100+d.armor*(1-Math.min(1,p.pierce))));const before=e.hp;e.hp-=hit;e.flash=this.time+.1;const tower=this.buildings.find(t=>t.id===p.source);if(tower){tower.damage+=Math.min(before,hit);this.stats.damage[tower.kind]+=Math.min(before,hit);}
   if(p.crit&&!secondary)this.fx('number',e,0xffdf91,.7,.6,''+Math.round(hit)+'!');
-  if(e.hp<=0){this.stats.kills++;const tower=this.buildings.find(t=>t.id===p.source),earner=this.playerForTarget(tower?.owner??0)??this.player;earner.gold+=d.gold;this.stats.income+=d.gold;this.player.xp+=d.xp;this.fx('death',e,d.color,d.boss?1.2:.5,.5);
+  if(e.hp<=0){this.stats.kills++;this.setGold(this.gold+d.gold);this.stats.income+=d.gold;this.player.xp+=d.xp;this.fx('death',e,d.color,d.boss?1.2:.5,.5);
    while(this.player.level<12&&this.player.xp>=XP[this.player.level]){this.player.level++;for(const w of this.players){w.level=this.player.level;w.xp=this.player.xp;if(w.hp>0){w.hp=Math.min(w.maxHp,w.hp+10);this.fx('ring',w,0xf4d88e,2,1);}}this.message(`队伍等级 ${this.player.level}`);this.soundEvents.push('level');}
    if(d.boss&&this.rewardPool.length){const index=Math.floor(this.rand()*this.rewardPool.length),kind=this.rewardPool.splice(index,1)[0];this.drop(kind,e);this.message(`${d.name} 被击败 · 地面掉落新奖励`,'boss');}
    const excess=hit-before;if(!secondary&&p.overflow>0&&excess>0){const other=this.nearby(e,2).filter(o=>o.id!==e.id&&this.map.los(e,o)).sort((a,b)=>distance(a,e)-distance(b,e))[0];if(other){this.visuals.push({kind:'arc',x:e.x,y:e.y,tx:other.x,ty:other.y,color:0xf4d88e,size:1,life:.3,age:0});this.hitEnemy(other,{...p,damage:excess*p.overflow,overflow:0,crit:false},true);}}
@@ -312,7 +313,7 @@ export class Simulation{
   if(destroyed.length){this.buildings=this.buildings.filter(t=>t.hp>0);this.reindex();}this.enemies=this.enemies.filter(e=>e.hp>0);
  }
  // Explicit practice mode only; normal runs have no debug grants or wave skips.
- practiceStart(){this.start();this.practice=true;this.god=true;for(const p of this.players){p.gold=5000;p.xp=3900;p.level=12;}this.time=-10;this.message('演练模式 · 无敌、全建筑解锁，可测试全部装备');}
+ practiceStart(){this.start();this.practice=true;this.god=true;this.setGold(5000);for(const p of this.players){p.xp=3900;p.level=12;}this.time=-10;this.message('演练模式 · 无敌、全建筑解锁，可测试全部装备');}
  grant(kind:RewardKind){if(this.practice)this.drop(kind,this.player);}
- snapshot(){return {state:this.state,time:this.time,wave:this.wave,player:{...this.player,input:{...this.player.input}},players:this.players.map(p=>({id:p.id,x:p.x,y:p.y,hp:p.hp,gold:p.gold,task:p.task,selected:p.selected})),playerCount:this.playerCount,waveInterval:this.waveInterval,batches:this.batches.reduce((n,b)=>n+b.kinds.length,0),buildings:this.buildings.map(t=>({id:t.id,owner:t.owner,kind:t.kind,x:t.x,y:t.y,hp:t.hp,level:t.level,progress:t.progress})),enemies:this.enemies.length,kills:this.stats.kills,gear:this.gear.map(g=>g?.kind||null),buffs:{...this.buffs},drops:this.drops.map(d=>({id:d.id,kind:d.kind,x:d.x,y:d.y})),task:this.task,paused:this.paused};}
+ snapshot(){return {state:this.state,time:this.time,wave:this.wave,gold:this.gold,player:{...this.player,input:{...this.player.input}},players:this.players.map(p=>({id:p.id,x:p.x,y:p.y,hp:p.hp,gold:this.gold,task:p.task,selected:p.selected})),playerCount:this.playerCount,waveInterval:this.waveInterval,batches:this.batches.reduce((n,b)=>n+b.kinds.length,0),buildings:this.buildings.map(t=>({id:t.id,owner:t.owner,kind:t.kind,x:t.x,y:t.y,hp:t.hp,level:t.level,progress:t.progress})),enemies:this.enemies.length,kills:this.stats.kills,gear:this.gear.map(g=>g?.kind||null),buffs:{...this.buffs},drops:this.drops.map(d=>({id:d.id,kind:d.kind,x:d.x,y:d.y})),task:this.task,paused:this.paused};}
 }

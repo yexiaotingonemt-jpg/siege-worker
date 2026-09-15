@@ -26,6 +26,7 @@ export function validSelect(value:unknown):value is number{return Number.isInteg
 
 export function validNetworkState(value:unknown,requiredPlayers=1,lastTime?:number):value is Record<string,unknown>{
  if(!object(value)||!finite(value.time)||value.time< -10.01||value.time>3600||!STATES.has(String(value.state)))return false;
+ if(value.gold!==undefined&&(!finite(value.gold)||value.gold<0||value.gold>1e7))return false;
  if(lastTime!==undefined&&value.time<lastTime-1)return false;
  if(!Number.isInteger(value.playerCount)||Number(value.playerCount)<requiredPlayers||Number(value.playerCount)>3)return false;
  const players=value.players;if(!array(players,3)||players.length!==value.playerCount||!players.every(player))return false;
