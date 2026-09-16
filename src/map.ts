@@ -1,5 +1,5 @@
 import {SIZE} from './data';
-import {CELL_CODE,CELL_EFFECTS,FIXED_MAP_ROWS,FIXED_VARIANT_ROWS,type CellEffect} from './map-layout';
+import {CELL_CODE,CELL_EFFECTS,FIXED_MAP_ROWS,type CellEffect} from './map-layout';
 export interface Point{x:number;y:number}
 export const distance=(a:Point,b:Point)=>Math.hypot(a.x-b.x,a.y-b.y);
 export const cell=(p:Point)=>Math.floor(p.y)*SIZE+Math.floor(p.x);
@@ -9,12 +9,11 @@ export class WorldMap{
  tiles=new Uint8Array(SIZE*SIZE); // 0 meadow, 1 stone, 2 water, 3 mud, 4 cliff face
  elevation=new Uint8Array(SIZE*SIZE); // 0 lowland, 1 highland
  ramps=new Uint8Array(SIZE*SIZE); // paired high/low cells form a passable slope
- variants=new Uint8Array(SIZE*SIZE); // fixed art variant 0..3 for every cell
  effects:CellEffect[]=[];
  constructor(){
   for(let y=0;y<SIZE;y++)for(let x=0;x<SIZE;x++){const id=y*SIZE+x,decoded=CELL_CODE[FIXED_MAP_ROWS[y][x]];
    if(!decoded)throw new Error(`Unknown fixed map cell at ${x},${y}`);
-   this.tiles[id]=decoded.terrain;this.elevation[id]=decoded.elevation;this.ramps[id]=decoded.ramp;this.variants[id]=Number(FIXED_VARIANT_ROWS[y][x]);this.effects[id]=CELL_EFFECTS[decoded.effect];
+   this.tiles[id]=decoded.terrain;this.elevation[id]=decoded.elevation;this.ramps[id]=decoded.ramp;this.effects[id]=CELL_EFFECTS[decoded.effect];
   }
  }
  terrain(x:number,y:number){if(x<0||y<0||x>=SIZE||y>=SIZE)return 1;return this.tiles[Math.floor(y)*SIZE+Math.floor(x)];}
